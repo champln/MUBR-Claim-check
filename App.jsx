@@ -15,7 +15,7 @@ const NAVY = '#00246B';
 const GOLD = '#F2A900';
 
 const SCHEMA = {
-  BILLTRAN: ['InvNo', 'HN', 'PID', 'DateOPD', 'Clinic', 'Total'],
+  BILLTRAN: ['InvNo', 'HN', 'PID', 'Sex', 'Dx', 'DateOPD', 'Clinic', 'Total'],
   OPSERVICES: ['InvNo', 'Code', 'Qty', 'Charge'],
   BILLDISP: ['InvNo', 'DrugCode', 'Qty', 'Charge'],
   BILLITEMS: ['InvNo', 'ItemCode', 'Qty', 'Charge'],
@@ -44,6 +44,37 @@ const parseCSMBS = (text, fileKey) => {
     });
 };
 
+
+const WIN874_EXTRA_MAP = {
+  0x20AC: 0x80,
+  0x2018: 0x91,
+  0x2019: 0x92,
+  0x201C: 0x93,
+  0x201D: 0x94,
+  0x2022: 0x95,
+  0x2013: 0x96,
+  0x2014: 0x97,
+};
+
+const encodeWindows874 = (text) => {
+  const bytes = [];
+  for (const char of text) {
+    const code = char.codePointAt(0);
+    if (code <= 0x7f) {
+      bytes.push(code);
+    } else if (code >= 0x0e01 && code <= 0x0e3a) {
+      bytes.push(code - 0x0e01 + 0xa1);
+    } else if (code >= 0x0e3f && code <= 0x0e5b) {
+      bytes.push(code - 0x0e3f + 0xdf);
+    } else if (WIN874_EXTRA_MAP[code]) {
+      bytes.push(WIN874_EXTRA_MAP[code]);
+    } else {
+      bytes.push(0x3f);
+    }
+  }
+  return new Uint8Array(bytes);
+};
+
 const toPipeText = (rows, fileKey) => {
   const fields = SCHEMA[fileKey] || [];
   return rows.map((row) => fields.map((f) => row[f] ?? '').join('|')).join('\r\n');
@@ -57,7 +88,7 @@ const toCsvText = (rows, fileKey) => {
 };
 
 const saveFile = (content, fileName) => {
-  const blob = new Blob([content], { type: 'text/plain;charset=windows-874' });
+  const blob = new Blob([encodeWindows874(content)], { type: 'text/plain;charset=windows-874' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = fileName;
@@ -288,7 +319,7 @@ export default function App() {
 
           {!!errors.length && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              {errors.slice(0, 5).map((e) => <div key={e}>• {e}</div>)}
+              {errors.slice(0, 5).map((e, idx) => <div key={`err-${idx}`}>• {e}</div>)}
             </div>
           )}
         </section>
