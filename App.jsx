@@ -106,6 +106,7 @@ const validateRows = (rows) => {
     }
     const sex = String(row.Sex || '').toUpperCase();
     const dx = String(row.Dx || '').toUpperCase();
+    // โค้ด ICD-10 กลุ่ม O00-O99 เป็นกลุ่มการตั้งครรภ์/คลอด ซึ่งไม่ควรพบในเพศชาย
     if (sex === 'M' && /^O\d{2}(\.|$)/i.test(dx)) {
       errors.push(`InvNo ${row.InvNo || '-'}: โรคไม่สอดคล้องกับเพศ`);
     }
@@ -167,7 +168,7 @@ export default function App() {
       setPage(1);
       showToast(`นำเข้า ${fileKey} สำเร็จ ${parsed.length} รายการ`);
     } catch (error) {
-      console.error('parseCSMBS error:', error);
+      console.error('parseCSMBS error', { fileKey, error });
       showToast(`ไม่สามารถอ่านไฟล์ ${fileKey}`);
     } finally {
       setLoading(false);
@@ -325,7 +326,7 @@ export default function App() {
 
           {!!errors.length && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              {errors.slice(0, 5).map((e, idx) => <div key={`err-${idx}`}>• {e}</div>)}
+              {errors.slice(0, 5).map((e, idx) => <div key={`${e}-${idx}`}>• {e}</div>)}
               {errors.length > 5 && <div className="mt-1 text-[11px] text-amber-700">แสดง 5 รายการจากทั้งหมด {errors.length} รายการ</div>}
             </div>
           )}
