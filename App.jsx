@@ -106,7 +106,7 @@ const validateRows = (rows) => {
     }
     const sex = String(row.Sex || '').toUpperCase();
     const dx = String(row.Dx || '').toUpperCase();
-    if (sex === 'M' && /^O\d{2}/.test(dx)) {
+    if (sex === 'M' && /^O\d{2}(\.|$)/i.test(dx)) {
       errors.push(`InvNo ${row.InvNo || '-'}: โรคไม่สอดคล้องกับเพศ`);
     }
   });
@@ -148,7 +148,8 @@ export default function App() {
   }, [rows, search, filterText, sortKey, sortAsc]);
 
   const maxPage = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const pageRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
+  const safePage = Math.min(page, maxPage);
+  const pageRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const showToast = (message) => {
     setToast(message);
@@ -165,7 +166,8 @@ export default function App() {
       setData((prev) => ({ ...prev, [fileKey]: parsed }));
       setPage(1);
       showToast(`นำเข้า ${fileKey} สำเร็จ ${parsed.length} รายการ`);
-    } catch {
+    } catch (error) {
+      console.error('parseCSMBS error:', error);
       showToast(`ไม่สามารถอ่านไฟล์ ${fileKey}`);
     } finally {
       setLoading(false);
@@ -308,9 +310,9 @@ export default function App() {
 
           <div className="mt-3 flex items-center justify-between text-sm">
             <div className="flex items-center gap-1">
-              <button className="rounded-lg border px-2 py-1 hover:bg-slate-100" onClick={() => setPage((p) => Math.max(1, p - 1))}>ก่อนหน้า</button>
-              <span>หน้า {page} / {maxPage}</span>
-              <button className="rounded-lg border px-2 py-1 hover:bg-slate-100" onClick={() => setPage((p) => Math.min(maxPage, p + 1))}>ถัดไป</button>
+              <button className="rounded-lg border px-2 py-1 hover:bg-slate-100" onClick={() => setPage(Math.max(1, safePage - 1))}>ก่อนหน้า</button>
+              <span>หน้า {safePage} / {maxPage}</span>
+              <button className="rounded-lg border px-2 py-1 hover:bg-slate-100" onClick={() => setPage(Math.min(maxPage, safePage + 1))}>ถัดไป</button>
             </div>
             <div className="flex items-center gap-2">
               {!!errors.length ? (
