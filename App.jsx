@@ -22,6 +22,8 @@ const SCHEMA = {
 };
 
 const FILE_KEYS = Object.keys(SCHEMA);
+const TOAST_DURATION_MS = 2400;
+const THAI_LOCALE = 'th';
 
 const decodeText = async (file) => {
   const buffer = await file.arrayBuffer();
@@ -104,7 +106,7 @@ const validateRows = (rows) => {
     }
     const sex = String(row.Sex || '').toUpperCase();
     const dx = String(row.Dx || '').toUpperCase();
-    if (sex === 'M' && /^O\d/.test(dx)) {
+    if (sex === 'M' && /^O\d{2}/.test(dx)) {
       errors.push(`InvNo ${row.InvNo || '-'}: โรคไม่สอดคล้องกับเพศ`);
     }
   });
@@ -141,7 +143,7 @@ export default function App() {
       .sort((a, b) => {
         const av = String(a[sortKey] || '');
         const bv = String(b[sortKey] || '');
-        return sortAsc ? av.localeCompare(bv, 'th') : bv.localeCompare(av, 'th');
+        return sortAsc ? av.localeCompare(bv, THAI_LOCALE) : bv.localeCompare(av, THAI_LOCALE);
       });
   }, [rows, search, filterText, sortKey, sortAsc]);
 
@@ -150,7 +152,7 @@ export default function App() {
 
   const showToast = (message) => {
     setToast(message);
-    setTimeout(() => setToast(''), 2400);
+    setTimeout(() => setToast(''), TOAST_DURATION_MS);
   };
 
   const handleUpload = async (event, fileKey) => {
