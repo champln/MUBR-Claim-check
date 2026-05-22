@@ -102,7 +102,9 @@ const validateRows = (rows) => {
     if ('DrugCode' in row && !row.DrugCode) {
       errors.push(`InvNo ${row.InvNo || '-'}: ไม่พบรหัสยา`);
     }
-    if (row.Sex === 'M' && String(row.Dx || '').startsWith('O')) {
+    const sex = String(row.Sex || '').toUpperCase();
+    const dx = String(row.Dx || '').toUpperCase();
+    if (sex === 'M' && /^O\d/.test(dx)) {
       errors.push(`InvNo ${row.InvNo || '-'}: โรคไม่สอดคล้องกับเพศ`);
     }
   });
@@ -320,6 +322,7 @@ export default function App() {
           {!!errors.length && (
             <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
               {errors.slice(0, 5).map((e, idx) => <div key={`err-${idx}`}>• {e}</div>)}
+              {errors.length > 5 && <div className="mt-1 text-[11px] text-amber-700">แสดง 5 รายการจากทั้งหมด {errors.length} รายการ</div>}
             </div>
           )}
         </section>
