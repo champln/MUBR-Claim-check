@@ -7,6 +7,8 @@ backend/venv/
 # Local database and temp files
 backend/*.db
 backend/*.sqlite3
+backend/*.db-wal
+backend/*.db-shm
 *.log
 
 # Node.js
