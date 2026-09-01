@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
+from auth import get_current_user, require_roles
 from database import get_db
-from models import ClaimBatch, ClaimRecord, PreScreenError, BatchStatus, ClaimStatus
+from models import ClaimBatch, ClaimRecord, PreScreenError, BatchStatus, ClaimStatus, User, UserRole
 from schemas import BatchOut, ClaimRecordOut, MessageResponse
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
@@ -17,7 +18,8 @@ def list_batches(
     skip: int = 0,
     limit: int = 50,
     claim_type: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     q = db.query(ClaimBatch)
     if claim_type:
@@ -26,7 +28,11 @@ def list_batches(
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
-def get_batch(batch_id: int, db: Session = Depends(get_db)):
+def get_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     batch = db.query(ClaimBatch).filter(ClaimBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Batch not found")
@@ -34,7 +40,11 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{batch_id}", response_model=MessageResponse)
-def delete_batch(batch_id: int, db: Session = Depends(get_db)):
+def delete_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+):
     batch = db.query(ClaimBatch).filter(ClaimBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Batch not found")
@@ -51,6 +61,7 @@ def list_claims(
     status: Optional[str] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     q = db.query(ClaimRecord).filter(ClaimRecord.batch_id == batch_id)
     if status:
@@ -65,7 +76,12 @@ def list_claims(
 
 
 @router.get("/{batch_id}/claims/{claim_id}", response_model=ClaimRecordOut)
-def get_claim(batch_id: int, claim_id: int, db: Session = Depends(get_db)):
+def get_claim(
+    batch_id: int,
+    claim_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     claim = (
         db.query(ClaimRecord)
         .filter(ClaimRecord.id == claim_id, ClaimRecord.batch_id == batch_id)

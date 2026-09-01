@@ -1,18 +1,34 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, Activity
+  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill
 } from 'lucide-react'
 import clsx from 'clsx'
+import { getAuthUser } from '../../lib/session'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'แดชบอร์ด' },
   { to: '/upload', icon: Upload, label: 'นำเข้าข้อมูล' },
+  { to: '/live-prescreen', icon: Radio, label: 'Pre-screen สด' },
   { to: '/batches', icon: ClipboardList, label: 'รายการส่งเบิก' },
+  { to: '/claim-files', icon: FileSearch, label: 'ตรวจไฟล์ส่งเบิก' },
+  { to: '/cpap-fix', icon: Wand2, label: 'แก้ไฟล์ CPAP/PSG' },
+  { to: '/covid19-fix', icon: Biohazard, label: 'แก้ไฟล์ COVID-19' },
+  { to: '/rama-sh50', icon: HeartPulse, label: 'เติมข้อมูล ปกส.รามา SH50' },
+  { to: '/tmt-fix', icon: Pill, label: 'แก้ไขรหัส TMT ยา' },
   { to: '/reports', icon: BarChart3, label: 'รายงาน' },
-  { to: '/settings', icon: Settings, label: 'ตั้งค่ากฎ' },
+  { to: '/account', icon: UserCog, label: 'บัญชีผู้ใช้' },
 ]
 
 export default function Sidebar() {
+  const user = getAuthUser()
+  const canManageRules = user?.role === 'ADMIN' || user?.role === 'REVIEWER'
+  const isAdmin = user?.role === 'ADMIN'
+  const items = [
+    ...navItems,
+    ...(canManageRules ? [{ to: '/settings', icon: SlidersHorizontal, label: 'ตั้งค่ากฎการตรวจสอบ' }] : []),
+    ...(isAdmin ? [{ to: '/system-settings', icon: Settings, label: 'ตั้งค่าระบบ' }] : []),
+  ]
+
   return (
     <aside className="w-60 min-h-screen bg-blue-900 text-white flex flex-col shadow-xl">
       {/* Logo / Header */}
@@ -33,7 +49,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {items.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}

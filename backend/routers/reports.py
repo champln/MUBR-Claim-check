@@ -5,9 +5,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy import and_
+from auth import get_current_user, require_roles
 from database import get_db
-from models import ClaimBatch, ClaimRecord, PreScreenError, ClaimStatus
-from schemas import DashboardStats, ValidationRuleCreate, ValidationRuleOut, MessageResponse
+from models import ClaimBatch, ClaimRecord, PreScreenError, ClaimStatus, User, UserRole
+from schemas import (
+    DashboardStats,
+    ValidationRuleCreate,
+    ValidationRuleOut,
+    ValidationRuleBulkUpsertRequest,
+    ValidationRuleBulkUpsertResult,
+    MessageResponse,
+)
 from models import ValidationRule
 from services.report_generator import generate_excel_report
 import io
@@ -18,7 +27,10 @@ router = APIRouter(tags=["Reports & Settings"])
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 
 @router.get("/dashboard", response_model=DashboardStats)
-def get_dashboard(db: Session = Depends(get_db)):
+def get_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     total_batches = db.query(func.count(ClaimBatch.id)).scalar() or 0
     total_claims = db.query(func.count(ClaimRecord.id)).scalar() or 0
     total_passed = db.query(func.count(ClaimRecord.id)).filter(
@@ -90,7 +102,11 @@ def get_dashboard(db: Session = Depends(get_db)):
 # ─── Export Report ────────────────────────────────────────────────────────────
 
 @router.get("/reports/{batch_id}/export")
-def export_report(batch_id: int, db: Session = Depends(get_db)):
+def export_report(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         data = generate_excel_report(db, batch_id)
     except ValueError as e:
@@ -108,12 +124,19 @@ def export_report(batch_id: int, db: Session = Depends(get_db)):
 # ─── Validation Rules ─────────────────────────────────────────────────────────
 
 @router.get("/rules", response_model=list[ValidationRuleOut])
-def list_rules(db: Session = Depends(get_db)):
+def list_rules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return db.query(ValidationRule).order_by(ValidationRule.id).all()
 
 
 @router.post("/rules", response_model=ValidationRuleOut)
-def create_rule(body: ValidationRuleCreate, db: Session = Depends(get_db)):
+def create_rule(
+    body: ValidationRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER)),
+):
     existing = db.query(ValidationRule).filter(
         ValidationRule.rule_code == body.rule_code
     ).first()
@@ -127,7 +150,12 @@ def create_rule(body: ValidationRuleCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/rules/{rule_id}", response_model=ValidationRuleOut)
-def update_rule(rule_id: int, body: ValidationRuleCreate, db: Session = Depends(get_db)):
+def update_rule(
+    rule_id: int,
+    body: ValidationRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER)),
+):
     rule = db.query(ValidationRule).filter(ValidationRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "Rule not found")
@@ -139,7 +167,11 @@ def update_rule(rule_id: int, body: ValidationRuleCreate, db: Session = Depends(
 
 
 @router.delete("/rules/{rule_id}", response_model=MessageResponse)
-def delete_rule(rule_id: int, db: Session = Depends(get_db)):
+def delete_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+):
     rule = db.query(ValidationRule).filter(ValidationRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "Rule not found")
@@ -149,7 +181,11 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/rules/{rule_id}/toggle", response_model=ValidationRuleOut)
-def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
+def toggle_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER)),
+):
     rule = db.query(ValidationRule).filter(ValidationRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "Rule not found")
@@ -157,3 +193,67 @@ def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(rule)
     return rule
+
+
+@router.post("/rules/bulk-upsert", response_model=ValidationRuleBulkUpsertResult)
+def bulk_upsert_rules(
+    body: ValidationRuleBulkUpsertRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER)),
+):
+    """
+    Bulk create/update validation rules.
+    Designed for continuously changing rule sets from external guideline updates.
+    """
+    if not body.rules:
+        raise HTTPException(400, "rules payload is empty")
+
+    created = 0
+    updated = 0
+    deactivated = 0
+
+    incoming_codes = {item.rule_code for item in body.rules}
+    existing_rules = db.query(ValidationRule).all()
+    existing_by_code = {r.rule_code: r for r in existing_rules}
+
+    for item in body.rules:
+        payload = item.model_dump()
+        code = payload["rule_code"]
+
+        if code in existing_by_code:
+            rule = existing_by_code[code]
+            for k, v in payload.items():
+                setattr(rule, k, v)
+            updated += 1
+        else:
+            db.add(ValidationRule(**payload))
+            created += 1
+
+    if body.deactivate_missing:
+        to_deactivate = (
+            db.query(ValidationRule)
+            .filter(and_(ValidationRule.is_active == True, ~ValidationRule.rule_code.in_(incoming_codes)))
+            .all()
+        )
+        for rule in to_deactivate:
+            rule.is_active = False
+            deactivated += 1
+
+    db.commit()
+
+    total_active = db.query(func.count(ValidationRule.id)).filter(ValidationRule.is_active == True).scalar() or 0
+    return ValidationRuleBulkUpsertResult(
+        created=created,
+        updated=updated,
+        deactivated=deactivated,
+        total_active=total_active,
+    )
+
+
+@router.get("/rules/export", response_model=list[ValidationRuleOut])
+def export_rules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export all rules as JSON for backup/versioning."""
+    return db.query(ValidationRule).order_by(ValidationRule.id).all()

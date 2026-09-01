@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 from typing import Optional
 import uuid
 from datetime import datetime
+from auth import get_current_user, require_roles
 from database import get_db
 from models import (
     ClaimBatch, ClaimRecord, PreScreenError, ValidationRule,
-    ClaimType, ClaimStatus, BatchStatus, ErrorSeverity
+    ClaimType, ClaimStatus, BatchStatus, ErrorSeverity, User, UserRole
 )
 from schemas import BatchOut, PreScreenSummary
 from services.excel_parser import parse_excel_to_records
@@ -42,6 +43,7 @@ async def upload_and_prescreen(
     uploaded_by: Optional[str] = Form("system"),
     note: Optional[str] = Form(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER, UserRole.OPERATOR)),
 ):
     """Upload a claim file (Excel/CSV) and run pre-screen checks"""
     if not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
@@ -158,7 +160,11 @@ async def upload_and_prescreen(
 
 
 @router.get("/{batch_id}/summary", response_model=PreScreenSummary)
-def get_prescreen_summary(batch_id: int, db: Session = Depends(get_db)):
+def get_prescreen_summary(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     batch = db.query(ClaimBatch).filter(ClaimBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Batch not found")
@@ -200,7 +206,11 @@ def get_prescreen_summary(batch_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{batch_id}/rerun", response_model=PreScreenSummary)
-def rerun_prescreen(batch_id: int, db: Session = Depends(get_db)):
+def rerun_prescreen(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.REVIEWER)),
+):
     """Re-run pre-screen on an existing batch (after rule changes)"""
     batch = db.query(ClaimBatch).filter(ClaimBatch.id == batch_id).first()
     if not batch:

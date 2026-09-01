@@ -19,3 +19,20 @@ frontend/dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ─── PHI / ข้อมูลผู้ป่วยจริง — ห้ามขึ้น GitHub (PDPA) ───────────────────────────
+# ทั้งโฟลเดอร์ document/ มีไฟล์เคลม/เคสผู้ป่วยจริง (ชื่อ + เลขบัตร 13 หลัก) ทุก subfolder
+# — เป็นเอกสารอ้างอิง/ตัวอย่าง ไม่ใช่โค้ดที่จำเป็นต่อการรันระบบ
+document/
+# test runner ที่ฝังข้อมูลผู้ป่วยจริงไว้ในโค้ด
+frontend/public/mbr-test-runner.js
+# ไฟล์เคลม/zip ที่หลุดมาวางในโปรเจกต์
+*BILLTRAN*.txt
+*BILLDISP*.txt
+*OPServices*.txt
+*_CSOPBIL_*
+*_SSOPBIL_*
+*-AIPN-*
+
+# local Claude config (machine-specific)
+.claude/settings.local.json
