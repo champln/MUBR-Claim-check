@@ -2,6 +2,16 @@
 MUBR Claim Pre-screen System — FastAPI Application
 ศูนย์การแพทย์มหิดลบำรุงรักษ์ จังหวัดนครสวรรค์
 """
+import os
+
+# โหลด backend/.env ก่อน import อื่น เพราะ auth.py อ่าน JWT_SECRET ตอน import
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except ImportError:  # ไม่มี python-dotenv ก็ยังรันได้ (ใช้ค่า default/ตัวแปรระบบ)
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
@@ -49,18 +59,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(prescreen.router)
-app.include_router(claims.router)
-app.include_router(reports.router)
-app.include_router(auth.router)
-app.include_router(claim_files.router)
-app.include_router(cpap_fix.router)
-app.include_router(live_prescreen.router)
-app.include_router(covid19_fix.router)
-app.include_router(rama_sh50_fix.router)
-app.include_router(tmt_fix.router)
+_ROUTERS = [
+    prescreen.router,
+    claims.router,
+    reports.router,
+    auth.router,
+    claim_files.router,
+    cpap_fix.router,
+    live_prescreen.router,
+    covid19_fix.router,
+    rama_sh50_fix.router,
+    tmt_fix.router,
+]
+
+# ลงทะเบียน 2 ชุด:
+#   - path เปล่า (/auth/...)      : โหมด dev ที่ Vite proxy ตัด /api ออกให้แล้ว
+#   - นำหน้า /api (/api/auth/...) : โหมด production ที่เบราว์เซอร์เรียกตรงมาที่ FastAPI
+for _r in _ROUTERS:
+    app.include_router(_r)
+    app.include_router(_r, prefix="/api")
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok", "service": "MUBR Claim Pre-screen"}
+
+
+# ─── เสิร์ฟหน้าเว็บที่ build แล้ว (production: เหลือ process/พอร์ตเดียว) ──────────
+# ต้องประกาศ "หลัง" ทุก API route เพราะเป็น catch-all
+_FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
+
+if os.path.isdir(_FRONTEND_DIST):
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _ASSETS_DIR = os.path.join(_FRONTEND_DIST, "assets")
+    if os.path.isdir(_ASSETS_DIR):
+        app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        """ไฟล์จริงส่งไฟล์นั้น, path อื่นส่ง index.html (React Router จัดการเอง)"""
+        candidate = os.path.normpath(os.path.join(_FRONTEND_DIST, full_path))
+        # กัน path traversal: ต้องอยู่ใต้ dist เท่านั้น
+        if (full_path and candidate.startswith(_FRONTEND_DIST) and os.path.isfile(candidate)):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(_FRONTEND_DIST, "index.html"))

@@ -36,3 +36,11 @@ frontend/public/mbr-test-runner.js
 
 # local Claude config (machine-specific)
 .claude/settings.local.json
+
+# ─── ความลับของเครื่อง (JWT secret ฯลฯ) — ห้ามขึ้น git ────────────────────────
+.env
+*.env
+!*.env.example
+
+# โฟลเดอร์สำรองฐานข้อมูล (มีข้อมูลผู้ป่วยจริง)
+backups/
