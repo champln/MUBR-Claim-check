@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Stethoscope, Upload, FileText, X, Search, Download, Trash2, BookMarked, AlertTriangle,
+  Pencil, Check as CheckIcon, RotateCcw,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -20,6 +21,9 @@ export default function StdCodeFixPage() {
   // รหัสที่ผู้ใช้กรอกสดให้แถวที่ระบบหาไม่ได้ : { local_code: std_code }
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [newRow, setNewRow] = useState({ local_code: '', std_code: '', description: '' })
+  // แก้รหัสในคลังทีละแถว (รหัสมาตรฐานเปลี่ยนได้ ต้องแก้ทับได้ตลอด)
+  const [editing, setEditing] = useState<Record<number, { std_code: string; description: string }>>({})
+  const [libSearch, setLibSearch] = useState('')
 
   const qc = useQueryClient()
   const library = useQuery({ queryKey: ['stdcode-library'], queryFn: listStdCodeLibrary })
@@ -73,6 +77,7 @@ export default function StdCodeFixPage() {
     onSuccess: (res) => {
       toast.success(`บันทึกคลังรหัส ${res.saved} รายการ (รวม ${res.total})`)
       setNewRow({ local_code: '', std_code: '', description: '' })
+      setEditing({})
       qc.invalidateQueries({ queryKey: ['stdcode-library'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'บันทึกไม่สำเร็จ'),
@@ -273,34 +278,107 @@ export default function StdCodeFixPage() {
         </div>
 
         {library.data && library.data.length > 0 && (
-          <div className="overflow-x-auto max-h-72 overflow-y-auto border rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 sticky top-0 border-b text-xs text-gray-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2 text-left">รหัสบริการ รพ.</th>
-                  <th className="px-3 py-2 text-left">STDCode</th>
-                  <th className="px-3 py-2 text-left">ชื่อรายการ</th>
-                  <th className="px-3 py-2 text-left">ที่มา</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {library.data.map(m => (
-                  <tr key={m.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 font-mono">{m.local_code}</td>
-                    <td className="px-3 py-2 font-mono text-teal-700 font-semibold">{m.std_code}</td>
-                    <td className="px-3 py-2 text-gray-600 truncate max-w-xs">{m.description}</td>
-                    <td className="px-3 py-2 text-xs text-gray-400">{m.source === 'LEARNED' ? 'เรียนรู้จากไฟล์' : 'กรอกเอง'}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button onClick={() => deleteMutation.mutate(m.id)} className="text-gray-300 hover:text-rose-500">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+          <>
+            <div className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-gray-400" />
+              <input value={libSearch} onChange={e => setLibSearch(e.target.value)}
+                placeholder="ค้นหารหัสบริการ / STDCode / ชื่อรายการ"
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm flex-1 max-w-md" />
+              {libSearch && (
+                <button onClick={() => setLibSearch('')} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+              )}
+            </div>
+            <div className="overflow-x-auto max-h-96 overflow-y-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0 border-b text-xs text-gray-500 uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">รหัสบริการ รพ.</th>
+                    <th className="px-3 py-2 text-left">STDCode</th>
+                    <th className="px-3 py-2 text-left">ชื่อรายการ</th>
+                    <th className="px-3 py-2 text-left">ที่มา</th>
+                    <th className="px-3 py-2 text-right w-24">แก้ไข</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {library.data
+                    .filter(m => {
+                      const q = libSearch.trim().toLowerCase()
+                      return !q || m.local_code.toLowerCase().includes(q)
+                        || m.std_code.toLowerCase().includes(q)
+                        || (m.description || '').toLowerCase().includes(q)
+                    })
+                    .map(m => {
+                      const draft = editing[m.id]
+                      const isEditing = draft !== undefined
+                      const changed = isEditing && (draft.std_code !== m.std_code || draft.description !== (m.description || ''))
+                      return (
+                        <tr key={m.id} className={clsx('hover:bg-gray-50', isEditing && 'bg-teal-50/40')}>
+                          <td className="px-3 py-2 font-mono">{m.local_code}</td>
+                          <td className="px-3 py-2">
+                            {isEditing ? (
+                              <input autoFocus value={draft.std_code}
+                                onChange={e => setEditing({ ...editing, [m.id]: { ...draft, std_code: e.target.value } })}
+                                className="border border-teal-300 rounded px-2 py-1 text-sm font-mono w-28 focus:ring-1 focus:ring-teal-400 outline-none" />
+                            ) : (
+                              <span className="font-mono text-teal-700 font-semibold">{m.std_code}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {isEditing ? (
+                              <input value={draft.description}
+                                onChange={e => setEditing({ ...editing, [m.id]: { ...draft, description: e.target.value } })}
+                                placeholder="ชื่อรายการ"
+                                className="border border-gray-300 rounded px-2 py-1 text-sm w-full max-w-xs" />
+                            ) : (
+                              <span className="text-gray-600">{m.description}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-400">{m.source === 'LEARNED' ? 'เรียนรู้จากไฟล์' : 'กรอกเอง'}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    title="บันทึก"
+                                    onClick={() => saveMutation.mutate([{
+                                      local_code: m.local_code,
+                                      std_code: draft.std_code.trim(),
+                                      description: draft.description,
+                                      source: 'MANUAL',
+                                    }])}
+                                    disabled={!changed || !draft.std_code.trim() || saveMutation.isPending}
+                                    className="text-emerald-600 hover:text-emerald-700 disabled:text-gray-300">
+                                    <CheckIcon className="w-4 h-4" />
+                                  </button>
+                                  <button title="ยกเลิก"
+                                    onClick={() => { const e2 = { ...editing }; delete e2[m.id]; setEditing(e2) }}
+                                    className="text-gray-400 hover:text-gray-600">
+                                    <RotateCcw className="w-4 h-4" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button title="แก้รหัส"
+                                  onClick={() => setEditing({ ...editing, [m.id]: { std_code: m.std_code, description: m.description || '' } })}
+                                  className="text-gray-400 hover:text-teal-600">
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button title="ลบ" onClick={() => deleteMutation.mutate(m.id)}
+                                className="text-gray-300 hover:text-rose-500">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-400">
+              แก้รหัสได้ตลอด — กดไอคอนดินสอเพื่อแก้ STDCode แล้วกดเครื่องหมายถูกเพื่อบันทึก (ทับของเดิม ใช้ผลทันทีครั้งถัดไป)
+            </p>
+          </>
         )}
       </div>
     </div>
