@@ -768,6 +768,195 @@ def apply_tmt_fix(files: Dict[str, bytes], rules: List[TmtRule]) -> TmtFixResult
     )
 
 
+# ─── แก้รหัสหัตถการใน OPServices (ติด C รหัส S19 / S41) ────────────────────────
+# S41 : Class = OP (หัตถการ) แต่ STDCode ว่าง  -> ต้องเติมรหัสหัตถการ
+# S19 : STDCode ไม่ถูกต้อง/ไม่สัมพันธ์กับ CodeSet -> ต้องแทนที่ด้วยรหัสที่ถูก
+#
+# แถว OPServices (คั่นด้วย |):
+#   [0]InvNo [1]ItemID [2]Class [3]HCODE [4]HN [5]PID ... [15]LocalCode [16]CodeType
+#   [17]STDCode [18]Amount [19]UseStatus [20]SvPID [21]Ward
+OPSERVICES_ITEMID_IDX = 1
+OPSERVICES_LOCALCODE_IDX = 15
+OPSERVICES_CODETYPE_IDX = 16
+OPSERVICES_STDCODE_IDX = 17
+OPSERVICES_AMOUNT_IDX = 18
+CLASS_PROCEDURE = "OP"
+
+
+@dataclass
+class StdCodeFixResult:
+    files: Dict[str, bytes]
+    changes: List[str] = field(default_factory=list)
+    filled: int = 0       # S41: เติมช่องว่าง
+    replaced: int = 0     # S19: แทนที่รหัสที่ไม่ถูก
+    unresolved: int = 0   # ยังหารหัสไม่ได้ — ต้องกรอกเอง
+
+
+def learn_stdcode_map(files: Dict[str, bytes]) -> Dict[str, str]:
+    """
+    เรียนรู้คู่ LocalCode -> STDCode จากแถวในไฟล์เอง (แถวที่กรอกครบอยู่แล้ว)
+    ใช้กรณีที่พบบ่อย: รายการเดียวกันมีหลายแถว แต่มีบางแถวที่ STDCode หลุดไป
+    ถ้า LocalCode เดียวกันมี STDCode ขัดกันเอง จะไม่ใช้ (กันเดาผิด)
+    """
+    seen: Dict[str, set] = {}
+    ops_name = _find(files, "OPSERVICES")
+    if not ops_name:
+        return {}
+    ops = CsopFile.parse(files[ops_name])
+    for row in ops.section_rows("OPServices"):
+        if len(row) <= OPSERVICES_STDCODE_IDX:
+            continue
+        local = _norm(row[OPSERVICES_LOCALCODE_IDX])
+        std = _norm(row[OPSERVICES_STDCODE_IDX])
+        if local and std:
+            seen.setdefault(local, set()).add(std)
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+def _resolve_stdcode(
+    local: str,
+    current: str,
+    library: Dict[str, str],
+    learned: Dict[str, str],
+    replace_existing: bool,
+) -> tuple[Optional[str], str]:
+    """
+    คืน (รหัสที่ควรใช้, ที่มา) — คืน (None, "") ถ้าไม่ต้องแก้หรือหาไม่ได้
+    ลำดับความน่าเชื่อถือ: คลังรหัสที่ผู้ใช้บันทึกไว้ > ที่เรียนรู้จากไฟล์เดียวกัน
+    """
+    if not local:
+        return None, ""
+    from_lib = _norm(library.get(local, ""))
+    from_file = _norm(learned.get(local, ""))
+
+    if not current:                       # S41 — ช่องว่าง
+        if from_lib:
+            return from_lib, "คลังรหัส"
+        if from_file:
+            return from_file, "ไฟล์นี้"
+        return None, ""
+
+    # S19 — มีรหัสอยู่แล้วแต่คลังรหัสบอกว่าเป็นอีกรหัส (แก้เมื่อผู้ใช้สั่งเท่านั้น)
+    if replace_existing and from_lib and from_lib != current:
+        return from_lib, "คลังรหัส"
+    return None, ""
+
+
+def _stdcode_targets(
+    files: Dict[str, bytes],
+    library: Dict[str, str],
+    use_file_learning: bool,
+    replace_existing: bool,
+) -> tuple[Optional[str], List[dict], List[dict]]:
+    """สแกน OPServices -> (ชื่อไฟล์, แถวที่แก้ได้, แถวที่ยังหารหัสไม่ได้)"""
+    ops_name = _find(files, "OPSERVICES")
+    if not ops_name:
+        raise ValueError("ไม่พบไฟล์ OPServices ในชุดที่อัปโหลด")
+
+    library = {_norm(k): _norm(v) for k, v in (library or {}).items() if _norm(k) and _norm(v)}
+    learned = learn_stdcode_map(files) if use_file_learning else {}
+
+    ops = CsopFile.parse(files[ops_name])
+    fixable: List[dict] = []
+    unresolved: List[dict] = []
+
+    for row in ops.section_rows("OPServices"):
+        if len(row) <= OPSERVICES_STDCODE_IDX:
+            continue
+        if _norm(row[OPSERVICES_CLASS_IDX]) != CLASS_PROCEDURE:
+            continue  # แถว EC (ระดับ visit) ไม่ต้องมีรหัสหัตถการ
+        local = _norm(row[OPSERVICES_LOCALCODE_IDX])
+        current = _norm(row[OPSERVICES_STDCODE_IDX])
+        new, source = _resolve_stdcode(local, current, library, learned, replace_existing)
+        info = {
+            "invno": _norm(row[0]),
+            "item_id": _norm(row[OPSERVICES_ITEMID_IDX]),
+            "local_code": local,
+            "current_stdcode": current,
+            "amount": _norm(row[OPSERVICES_AMOUNT_IDX]) if len(row) > OPSERVICES_AMOUNT_IDX else "",
+        }
+        if new:
+            fixable.append({**info, "new_stdcode": new, "source": source,
+                            "issue": "S41" if not current else "S19"})
+        elif not current:
+            unresolved.append({**info, "issue": "S41"})
+
+    return ops_name, fixable, unresolved
+
+
+def preview_stdcode_fix(
+    files: Dict[str, bytes],
+    library: Optional[Dict[str, str]] = None,
+    use_file_learning: bool = True,
+    replace_existing: bool = False,
+) -> dict:
+    """ดูว่าแถวไหนใน OPServices จะถูกเติม/แก้รหัสหัตถการ (ยังไม่แก้ไฟล์)"""
+    ops_name, fixable, unresolved = _stdcode_targets(
+        files, library or {}, use_file_learning, replace_existing
+    )
+    learned = learn_stdcode_map(files) if use_file_learning else {}
+    return {
+        "opservices_file": ops_name,
+        "fill_count": sum(1 for r in fixable if r["issue"] == "S41"),
+        "replace_count": sum(1 for r in fixable if r["issue"] == "S19"),
+        "total_change_count": len(fixable),
+        "unresolved_count": len(unresolved),
+        "rows": fixable,
+        "unresolved": unresolved,
+        "learned_map": learned,
+    }
+
+
+def apply_stdcode_fix(
+    files: Dict[str, bytes],
+    library: Optional[Dict[str, str]] = None,
+    use_file_learning: bool = True,
+    replace_existing: bool = False,
+) -> StdCodeFixResult:
+    """เติม/แก้รหัสหัตถการ (STDCode) ใน OPServices แล้วเซ็น Checksum ใหม่"""
+    ops_name, fixable, unresolved = _stdcode_targets(
+        files, library or {}, use_file_learning, replace_existing
+    )
+    if not fixable:
+        raise ValueError(
+            "ไม่มีแถวที่แก้ได้ — "
+            + (f"มี {len(unresolved)} แถวที่ STDCode ว่างแต่ยังไม่รู้รหัสที่ถูกต้อง "
+               "กรุณาระบุรหัสในคลังรหัสหัตถการก่อน"
+               if unresolved else "ไฟล์นี้ไม่พบปัญหา S19/S41")
+        )
+
+    # ทำ index ด้วย ItemID (ไม่ซ้ำในไฟล์) เพื่อแก้ให้ตรงแถวเป๊ะ
+    by_item = {r["item_id"]: r["new_stdcode"] for r in fixable}
+    out: Dict[str, bytes] = dict(files)
+    ops = CsopFile.parse(files[ops_name])
+    counters = {"fill": 0, "repl": 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        if len(cols) <= OPSERVICES_STDCODE_IDX:
+            return None
+        new = by_item.get(_norm(cols[OPSERVICES_ITEMID_IDX]))
+        if not new or new == _norm(cols[OPSERVICES_STDCODE_IDX]):
+            return None
+        counters["fill" if not _norm(cols[OPSERVICES_STDCODE_IDX]) else "repl"] += 1
+        return _set_field(list(cols), OPSERVICES_STDCODE_IDX, new)
+
+    ops.edit_section("OPServices", fix)
+    out[ops_name] = ops.to_bytes()
+
+    changes: List[str] = []
+    if counters["fill"]:
+        changes.append(f"{ops_name}: เติมรหัสหัตถการที่ว่าง (S41) {counters['fill']} แถว")
+    if counters["repl"]:
+        changes.append(f"{ops_name}: แก้รหัสหัตถการที่ไม่ถูกต้อง (S19) {counters['repl']} แถว")
+    if unresolved:
+        changes.append(f"{ops_name}: ยังหารหัสไม่ได้ {len(unresolved)} แถว — ต้องกรอกเอง")
+
+    return StdCodeFixResult(
+        files=out, changes=changes,
+        filled=counters["fill"], replaced=counters["repl"], unresolved=len(unresolved),
+    )
+
+
 def _find(files: Dict[str, bytes], keyword: str) -> Optional[str]:
     for name in files:
         if keyword in name.upper():

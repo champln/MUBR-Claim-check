@@ -359,3 +359,21 @@ class CpapFixSession(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class StdCodeMapping(Base):
+    """
+    คลังรหัสหัตถการ: รหัสบริการของ รพ. (LocalCode) -> รหัสมาตรฐาน (STDCode)
+    ใช้เติม/แก้ STDCode ในแฟ้ม OPServices เพื่อกัน C รหัส S19 และ S41
+    """
+    __tablename__ = "stdcode_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    local_code = Column(String(50), unique=True, index=True, nullable=False)
+    std_code = Column(String(50), nullable=False)
+    description = Column(String(255))     # ชื่อรายการ (ไว้ให้คนอ่านออก)
+    source = Column(String(30), default="MANUAL")  # MANUAL / LEARNED (เรียนรู้จากไฟล์)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill
+  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/covid19-fix', icon: Biohazard, label: 'แก้ไฟล์ COVID-19' },
   { to: '/rama-sh50', icon: HeartPulse, label: 'เติมข้อมูล ปกส.รามา SH50' },
   { to: '/tmt-fix', icon: Pill, label: 'แก้ไขรหัส TMT ยา' },
+  { to: '/stdcode-fix', icon: Stethoscope, label: 'แก้รหัสหัตถการ (S19/S41)' },
   { to: '/reports', icon: BarChart3, label: 'รายงาน' },
   { to: '/account', icon: UserCog, label: 'บัญชีผู้ใช้' },
 ]

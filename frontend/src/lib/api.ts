@@ -561,3 +561,91 @@ export const applyTmtFix = async (
     changes, filename,
   }
 }
+
+// ─── แก้รหัสหัตถการใน OPServices (ติด C รหัส S19 / S41) ────────────────────────
+
+export interface StdCodeRow {
+  invno: string
+  item_id: string
+  local_code: string
+  current_stdcode: string
+  amount: string
+  new_stdcode?: string
+  source?: string
+  issue: 'S19' | 'S41'
+}
+
+export interface StdCodePreviewResult {
+  opservices_file: string
+  fill_count: number
+  replace_count: number
+  total_change_count: number
+  unresolved_count: number
+  rows: StdCodeRow[]
+  unresolved: StdCodeRow[]
+  learned_map: Record<string, string>
+}
+
+export interface StdCodeMapping {
+  id: number
+  local_code: string
+  std_code: string
+  description: string
+  source: string
+  updated_at: string | null
+}
+
+export interface StdCodeOpts {
+  useFileLearning?: boolean
+  replaceExisting?: boolean
+  overrides?: Record<string, string>
+  saveToLibrary?: boolean
+}
+
+function buildStdCodeForm(files: File[], opts: StdCodeOpts): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  fd.append('use_file_learning', String(opts.useFileLearning !== false))
+  fd.append('replace_existing', String(!!opts.replaceExisting))
+  const overrides = Object.fromEntries(
+    Object.entries(opts.overrides || {}).filter(([k, v]) => k.trim() && String(v).trim()),
+  )
+  if (Object.keys(overrides).length) fd.append('overrides', JSON.stringify(overrides))
+  if (opts.saveToLibrary) fd.append('save_to_library', 'true')
+  return fd
+}
+
+export const previewStdCodeFix = (files: File[], opts: StdCodeOpts = {}) =>
+  api.post<StdCodePreviewResult>('/stdcode-fix/preview', buildStdCodeForm(files, opts)).then(r => r.data)
+
+export const applyStdCodeFix = async (
+  files: File[],
+  opts: StdCodeOpts = {},
+): Promise<{ filled: number; replaced: number; unresolved: number; changes: string[]; filename: string }> => {
+  const res = await api.post('/stdcode-fix/apply', buildStdCodeForm(files, opts), { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-filename'] || 'OPServices.txt'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return {
+    filled: Number(res.headers['x-stdcode-filled'] || 0),
+    replaced: Number(res.headers['x-stdcode-replaced'] || 0),
+    unresolved: Number(res.headers['x-stdcode-unresolved'] || 0),
+    changes, filename,
+  }
+}
+
+export const listStdCodeLibrary = () =>
+  api.get<StdCodeMapping[]>('/stdcode-fix/library').then(r => r.data)
+
+export const saveStdCodeLibrary = (
+  items: { local_code: string; std_code: string; description?: string; source?: string }[],
+) => api.post<{ saved: number; total: number }>('/stdcode-fix/library', items).then(r => r.data)
+
+export const deleteStdCodeMapping = (id: number) =>
+  api.delete(`/stdcode-fix/library/${id}`).then(r => r.data)
