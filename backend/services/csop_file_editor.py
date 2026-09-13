@@ -768,6 +768,134 @@ def apply_tmt_fix(files: Dict[str, bytes], rules: List[TmtRule]) -> TmtFixResult
     )
 
 
+# ─── เติมยอดเบิกค่าบริการทั่วไป ผป.นอก (ติด C รหัส T33 / 45) ──────────────────
+# แถว BillItems ของ "ค่าบริการทั่วไปผู้ป่วยนอก ในเวลาราชการ" ส่งมาโดยมี
+# จำนวนเงินที่เบิกได้ (ฟิลด์ 10) และจำนวนเงินที่ขอเบิก (ฟิลด์ 11) เป็น 0.00
+# ทั้งที่มียอดรายการ (ฟิลด์ 9) อยู่ -> ต้องเติมให้เท่ายอดรายการ
+#
+# แถว BillItems: [0]InvNo [1]date [2]BillMu [3]LocalCode [4]STDCode [5]desc
+#                [6]qty [7]UnitPrice [8]Amount [9]Claimable [10]Requested
+#                [11]SvPID [12]Ward
+BILLITEMS_STDCODE_IDX = 4
+BILLITEMS_DESC_IDX = 5
+BILLITEMS_CLAIMABLE_IDX = 9    # จำนวนเงินที่เบิกได้ (ฟิลด์ที่ 10)
+BILLITEMS_REQUESTED_IDX = 10   # จำนวนเงินที่ขอเบิก (ฟิลด์ที่ 11)
+OPD_SERVICE_FEE_CODE = "55020"  # ค่าบริการทั่วไปผู้ป่วยนอก ในเวลาราชการ
+ZERO_AMOUNT = "0.00"
+
+
+@dataclass
+class OpdFeeFixResult:
+    files: Dict[str, bytes]
+    changes: List[str] = field(default_factory=list)
+    rows_changed: int = 0
+
+
+def _opd_fee_targets(
+    files: Dict[str, bytes],
+    codes: Optional[set] = None,
+    amount: str = "",
+) -> tuple[Optional[str], List[dict]]:
+    """
+    หาแถว BillItems ที่ต้องเติมยอดเบิก
+    codes  : รหัสมาตรฐาน (ฟิลด์ 5) ที่ถือว่าเป็นค่าบริการทั่วไป — default {55020}
+    amount : ยอดที่จะเติม; ว่าง = ใช้ยอดของรายการนั้นเอง (ฟิลด์ 9)
+    """
+    billtran_name = _find(files, "BILLTRAN")
+    if not billtran_name:
+        raise ValueError("ไม่พบไฟล์ BILLTRAN ในชุดที่อัปโหลด")
+
+    codes = {_norm(c) for c in (codes or {OPD_SERVICE_FEE_CODE}) if _norm(c)}
+    if not codes:
+        raise ValueError("ต้องระบุรหัสรายการอย่างน้อย 1 รหัส")
+
+    bt = CsopFile.parse(files[billtran_name])
+    targets: List[dict] = []
+    for row in bt.section_rows("BillItems"):
+        if len(row) <= BILLITEMS_REQUESTED_IDX:
+            continue
+        if _norm(row[BILLITEMS_STDCODE_IDX]) not in codes:
+            continue
+        claimable = _norm(row[BILLITEMS_CLAIMABLE_IDX])
+        requested = _norm(row[BILLITEMS_REQUESTED_IDX])
+        if claimable != ZERO_AMOUNT and requested != ZERO_AMOUNT:
+            continue  # กรอกมาแล้ว ไม่ต้องแตะ
+        new_amount = _norm(amount) or _norm(row[BILLITEMS_AMOUNT_IDX])
+        if not new_amount or new_amount == ZERO_AMOUNT:
+            continue  # ยอดรายการเป็น 0 เอง — ไม่ใช่เคสนี้
+        targets.append({
+            "invno": _norm(row[0]),
+            "date": _norm(row[1]),
+            "local_code": _norm(row[3]),
+            "std_code": _norm(row[BILLITEMS_STDCODE_IDX]),
+            "desc": _norm(row[BILLITEMS_DESC_IDX]),
+            "amount": _norm(row[BILLITEMS_AMOUNT_IDX]),
+            "current_claimable": claimable,
+            "current_requested": requested,
+            "new_value": new_amount,
+        })
+    return billtran_name, targets
+
+
+def preview_opd_fee_fix(
+    files: Dict[str, bytes],
+    codes: Optional[set] = None,
+    amount: str = "",
+) -> dict:
+    """ดูว่าแถวไหนใน BillItems จะถูกเติมยอดเบิก (ยังไม่แก้ไฟล์)"""
+    billtran_name, targets = _opd_fee_targets(files, codes, amount)
+    return {
+        "billtran_file": billtran_name,
+        "total_change_count": len(targets),
+        "rows": targets,
+    }
+
+
+def apply_opd_fee_fix(
+    files: Dict[str, bytes],
+    codes: Optional[set] = None,
+    amount: str = "",
+) -> OpdFeeFixResult:
+    """เติมจำนวนเงินที่เบิกได้/ขอเบิก ใน BillItems แล้วเซ็น Checksum ใหม่"""
+    billtran_name, targets = _opd_fee_targets(files, codes, amount)
+    if not targets:
+        raise ValueError(
+            "ไม่พบแถวที่ต้องแก้ — ไม่มีรายการที่ตรงรหัสและมียอดเบิกเป็น 0.00 "
+            "(ถ้ารหัสรายการของ รพ. ต่างจาก 55020 ให้ระบุรหัสเพิ่มในช่องตั้งค่า)"
+        )
+
+    codes_set = {_norm(c) for c in (codes or {OPD_SERVICE_FEE_CODE}) if _norm(c)}
+    out: Dict[str, bytes] = dict(files)
+    bt = CsopFile.parse(files[billtran_name])
+    counter = {"n": 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        if len(cols) <= BILLITEMS_REQUESTED_IDX:
+            return None
+        if _norm(cols[BILLITEMS_STDCODE_IDX]) not in codes_set:
+            return None
+        claimable = _norm(cols[BILLITEMS_CLAIMABLE_IDX])
+        requested = _norm(cols[BILLITEMS_REQUESTED_IDX])
+        if claimable != ZERO_AMOUNT and requested != ZERO_AMOUNT:
+            return None
+        new_amount = _norm(amount) or _norm(cols[BILLITEMS_AMOUNT_IDX])
+        if not new_amount or new_amount == ZERO_AMOUNT:
+            return None
+        new = list(cols)
+        if claimable == ZERO_AMOUNT:
+            _set_field(new, BILLITEMS_CLAIMABLE_IDX, new_amount)
+        if requested == ZERO_AMOUNT:
+            _set_field(new, BILLITEMS_REQUESTED_IDX, new_amount)
+        counter["n"] += 1
+        return new
+
+    bt.edit_section("BillItems", fix)
+    out[billtran_name] = bt.to_bytes()
+
+    changes = [f"{billtran_name}: เติมจำนวนเงินที่เบิกได้/ขอเบิก {counter['n']} รายการ"] if counter["n"] else []
+    return OpdFeeFixResult(files=out, changes=changes, rows_changed=counter["n"])
+
+
 # ─── แก้รหัสหัตถการใน OPServices (ติด C รหัส S19 / S41) ────────────────────────
 # S41 : Class = OP (หัตถการ) แต่ STDCode ว่าง  -> ต้องเติมรหัสหัตถการ
 # S19 : STDCode ไม่ถูกต้อง/ไม่สัมพันธ์กับ CodeSet -> ต้องแทนที่ด้วยรหัสที่ถูก

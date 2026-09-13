@@ -640,6 +640,60 @@ export const applyStdCodeFix = async (
   }
 }
 
+// ─── เติมยอดเบิกค่าบริการทั่วไป ผป.นอก (ติด C รหัส T33 / 45) ─────────────────
+
+export interface OpdFeeRow {
+  invno: string
+  date: string
+  local_code: string
+  std_code: string
+  desc: string
+  amount: string
+  current_claimable: string
+  current_requested: string
+  new_value: string
+}
+
+export interface OpdFeePreviewResult {
+  billtran_file: string
+  total_change_count: number
+  rows: OpdFeeRow[]
+  codes_used: string[]
+}
+
+export interface OpdFeeOpts {
+  codes?: string
+  amount?: string
+}
+
+function buildOpdFeeForm(files: File[], opts: OpdFeeOpts): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  if (opts.codes?.trim()) fd.append('codes', opts.codes.trim())
+  fd.append('amount', opts.amount?.trim() || '')
+  return fd
+}
+
+export const previewOpdFeeFix = (files: File[], opts: OpdFeeOpts = {}) =>
+  api.post<OpdFeePreviewResult>('/opd-fee-fix/preview', buildOpdFeeForm(files, opts)).then(r => r.data)
+
+export const applyOpdFeeFix = async (
+  files: File[],
+  opts: OpdFeeOpts = {},
+): Promise<{ rowsChanged: number; changes: string[]; filename: string }> => {
+  const res = await api.post('/opd-fee-fix/apply', buildOpdFeeForm(files, opts), { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-filename'] || 'BILLTRAN.txt'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { rowsChanged: Number(res.headers['x-rows-changed'] || 0), changes, filename }
+}
+
 export const listStdCodeLibrary = () =>
   api.get<StdCodeMapping[]>('/stdcode-fix/library').then(r => r.data)
 
