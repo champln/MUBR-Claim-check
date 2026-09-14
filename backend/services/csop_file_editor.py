@@ -768,6 +768,130 @@ def apply_tmt_fix(files: Dict[str, bytes], rules: List[TmtRule]) -> TmtFixResult
     )
 
 
+# ─── แก้วันที่ให้บริการใน BillItems (ติด C รหัส T42) ───────────────────────────
+# T42 : SVDATE ไม่สัมพันธ์กับ BILLTRAN
+# วันที่ของแต่ละรายการใน BillItems (ฟิลด์ที่ 2) ต้องตรงกับวัน visit ใน BILLTRAN
+# (ฟิลด์ที่ 3 = วันเวลาที่รับบริการ) — แถวไหนไม่ตรงให้แก้ตามวัน visit
+BILLTRAN_SVDATE_IDX = 2     # วันเวลาที่รับบริการ (ฟิลด์ที่ 3) เช่น 2026-03-02 07:52:53
+BILLITEMS_DATE_IDX = 1      # วันที่ของรายการ (ฟิลด์ที่ 2) เช่น 2026-03-02
+
+
+@dataclass
+class SvDateFixResult:
+    files: Dict[str, bytes]
+    changes: List[str] = field(default_factory=list)
+    rows_changed: int = 0
+
+
+def _visit_dates(bt: "CsopFile") -> Dict[str, str]:
+    """InvNo -> วันที่ visit (เอาเฉพาะส่วนวัน YYYY-MM-DD)"""
+    out: Dict[str, str] = {}
+    for row in bt.section_rows("BILLTRAN"):
+        if len(row) <= BILLTRAN_INVNO_IDX:
+            continue
+        invno = _norm(row[BILLTRAN_INVNO_IDX])
+        svdate = _norm(row[BILLTRAN_SVDATE_IDX])[:10]
+        if invno and svdate:
+            out[invno] = svdate
+    return out
+
+
+def _svdate_targets(
+    files: Dict[str, bytes],
+    force_date: str = "",
+) -> tuple[Optional[str], List[dict], List[dict]]:
+    """
+    หาแถว BillItems ที่วันที่ไม่ตรงกับวัน visit
+    คืน (ชื่อไฟล์ BILLTRAN, แถวที่ต้องแก้, แถวในแฟ้มอื่นที่วันที่ไม่ตรง — แจ้งเตือนเฉยๆ)
+    force_date : บังคับใช้วันที่นี้แทนวัน visit (ว่าง = ใช้วัน visit จาก BILLTRAN)
+    """
+    billtran_name = _find(files, "BILLTRAN")
+    if not billtran_name:
+        raise ValueError("ไม่พบไฟล์ BILLTRAN ในชุดที่อัปโหลด")
+
+    bt = CsopFile.parse(files[billtran_name])
+    visits = _visit_dates(bt)
+    if not visits:
+        raise ValueError("อ่านวันที่ visit จาก BILLTRAN ไม่ได้")
+
+    forced = _norm(force_date)
+    targets: List[dict] = []
+    for row in bt.section_rows("BillItems"):
+        if len(row) <= BILLITEMS_DESC_IDX:
+            continue
+        invno = _norm(row[0])
+        current = _norm(row[BILLITEMS_DATE_IDX])
+        want = forced or visits.get(invno, "")
+        if not want or not current or current == want:
+            continue
+        targets.append({
+            "invno": invno,
+            "desc": _norm(row[BILLITEMS_DESC_IDX]),
+            "local_code": _norm(row[3]),
+            "std_code": _norm(row[BILLITEMS_STDCODE_IDX]),
+            "amount": _norm(row[BILLITEMS_AMOUNT_IDX]) if len(row) > BILLITEMS_AMOUNT_IDX else "",
+            "current_date": current,
+            "visit_date": want,
+        })
+
+    # ตรวจแฟ้มอื่นด้วย (ไม่แก้ — ถ้าไม่ตรงแปลว่าอาจเป็นวัน visit เองที่ผิด)
+    others: List[dict] = []
+    ops_name = _find(files, "OPSERVICES")
+    if ops_name:
+        ops = CsopFile.parse(files[ops_name])
+        for row in ops.section_rows("OPServices"):
+            if len(row) <= 14:
+                continue
+            invno = _norm(row[0])
+            d = _norm(row[13])[:10]
+            want = visits.get(invno, "")
+            if want and d and d != want:
+                others.append({"file": ops_name, "invno": invno, "date": d, "visit_date": want})
+    return billtran_name, targets, others
+
+
+def preview_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> dict:
+    """ดูว่าแถวไหนใน BillItems มีวันที่ไม่ตรงกับวัน visit (ยังไม่แก้ไฟล์)"""
+    billtran_name, targets, others = _svdate_targets(files, force_date)
+    bt = CsopFile.parse(files[billtran_name])
+    return {
+        "billtran_file": billtran_name,
+        "total_change_count": len(targets),
+        "rows": targets,
+        "other_mismatches": others,
+        "visit_dates": _visit_dates(bt),
+    }
+
+
+def apply_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> SvDateFixResult:
+    """แก้วันที่ของรายการใน BillItems ให้ตรงวัน visit แล้วเซ็น Checksum ใหม่"""
+    billtran_name, targets, _ = _svdate_targets(files, force_date)
+    if not targets:
+        raise ValueError("ไม่พบแถวที่ต้องแก้ — วันที่ของทุกรายการตรงกับวัน visit อยู่แล้ว")
+
+    bt = CsopFile.parse(files[billtran_name])
+    visits = _visit_dates(bt)
+    forced = _norm(force_date)
+    out: Dict[str, bytes] = dict(files)
+    counter = {"n": 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        if len(cols) <= BILLITEMS_DATE_IDX:
+            return None
+        want = forced or visits.get(_norm(cols[0]), "")
+        current = _norm(cols[BILLITEMS_DATE_IDX])
+        if not want or not current or current == want:
+            return None
+        counter["n"] += 1
+        return _set_field(list(cols), BILLITEMS_DATE_IDX, want)
+
+    bt.edit_section("BillItems", fix)
+    out[billtran_name] = bt.to_bytes()
+
+    changes = [f"{billtran_name}: แก้วันที่ให้บริการใน BillItems {counter['n']} รายการ"] if counter["n"] else []
+    return SvDateFixResult(files=out, changes=changes, rows_changed=counter["n"])
+
+
 # ─── เติมยอดเบิกค่าบริการทั่วไป ผป.นอก (ติด C รหัส T33 / 45) ──────────────────
 # แถว BillItems ของ "ค่าบริการทั่วไปผู้ป่วยนอก ในเวลาราชการ" ส่งมาโดยมี
 # จำนวนเงินที่เบิกได้ (ฟิลด์ 10) และจำนวนเงินที่ขอเบิก (ฟิลด์ 11) เป็น 0.00

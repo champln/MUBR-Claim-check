@@ -694,6 +694,53 @@ export const applyOpdFeeFix = async (
   return { rowsChanged: Number(res.headers['x-rows-changed'] || 0), changes, filename }
 }
 
+// ─── แก้วันที่ให้บริการใน BillItems (ติด C รหัส T42) ──────────────────────────
+
+export interface SvDateRow {
+  invno: string
+  desc: string
+  local_code: string
+  std_code: string
+  amount: string
+  current_date: string
+  visit_date: string
+}
+
+export interface SvDatePreviewResult {
+  billtran_file: string
+  total_change_count: number
+  rows: SvDateRow[]
+  other_mismatches: { file: string; invno: string; date: string; visit_date: string }[]
+  visit_dates: Record<string, string>
+}
+
+function buildSvDateForm(files: File[], forceDate?: string): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  fd.append('force_date', forceDate?.trim() || '')
+  return fd
+}
+
+export const previewSvDateFix = (files: File[], forceDate?: string) =>
+  api.post<SvDatePreviewResult>('/svdate-fix/preview', buildSvDateForm(files, forceDate)).then(r => r.data)
+
+export const applySvDateFix = async (
+  files: File[],
+  forceDate?: string,
+): Promise<{ rowsChanged: number; changes: string[]; filename: string }> => {
+  const res = await api.post('/svdate-fix/apply', buildSvDateForm(files, forceDate), { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-filename'] || 'BILLTRAN.txt'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { rowsChanged: Number(res.headers['x-rows-changed'] || 0), changes, filename }
+}
+
 export const listStdCodeLibrary = () =>
   api.get<StdCodeMapping[]>('/stdcode-fix/library').then(r => r.data)
 

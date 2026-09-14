@@ -23,6 +23,7 @@ import RamaSh50Page from './pages/RamaSh50Page'
 import TmtFixPage from './pages/TmtFixPage'
 import StdCodeFixPage from './pages/StdCodeFixPage'
 import OpdFeeFixPage from './pages/OpdFeeFixPage'
+import SvDateFixPage from './pages/SvDateFixPage'
 import LivePrescreenPage from './pages/LivePrescreenPage'
 import { getAuthToken } from './lib/session'
 
@@ -68,6 +69,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route path="/tmt-fix" element={<TmtFixPage />} />
             <Route path="/stdcode-fix" element={<StdCodeFixPage />} />
             <Route path="/opd-fee-fix" element={<OpdFeeFixPage />} />
+            <Route path="/svdate-fix" element={<SvDateFixPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
