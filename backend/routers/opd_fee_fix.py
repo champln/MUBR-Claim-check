@@ -24,8 +24,10 @@ from models import User
 from services.csop_file_editor import (
     OPD_SERVICE_FEE_CODE,
     apply_opd_fee_fix,
+    apply_total_sync,
     build_zip_filename,
     preview_opd_fee_fix,
+    preview_total_sync,
 )
 
 router = APIRouter(prefix="/opd-fee-fix", tags=["OPD Service Fee Fix (T33/45)"])
@@ -73,6 +75,16 @@ async def preview(
     except ValueError as e:
         raise HTTPException(422, str(e))
     result["codes_used"] = sorted(_split_codes(codes))
+
+    # ยอดหัวบิลไม่ตรงผลรวมรายการ (A04/T33/T45) — ดูจากไฟล์ "หลังเติมยอดแล้ว"
+    try:
+        filled = apply_opd_fee_fix(contents, codes=_split_codes(codes), amount=amount).files
+    except ValueError:
+        filled = contents
+    try:
+        result["totals"] = preview_total_sync(filled)
+    except ValueError as e:
+        result["totals"] = {"billtran_file": None, "total_change_count": 0, "rows": [], "error": str(e)}
     return result
 
 
@@ -81,6 +93,8 @@ async def apply(
     files: List[UploadFile] = File(...),
     codes: Optional[str] = Form(None),
     amount: str = Form(""),
+    fill_fee: bool = Form(True),
+    sync_totals: bool = Form(True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -90,15 +104,45 @@ async def apply(
         None,
     )
     contents = await _read_txt_uploads(files)
-    try:
-        result = apply_opd_fee_fix(contents, codes=_split_codes(codes), amount=amount)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+    if not fill_fee and not sync_totals:
+        raise HTTPException(400, "ต้องเลือกอย่างน้อย 1 อย่าง: เติมยอดเบิก หรือ ปรับยอดหัวบิล")
+
+    working = contents
+    changes: List[str] = []
+    fee_rows = total_rows = 0
+    errors: List[str] = []
+
+    # 1) เติมยอดเบิกของรายการค่าบริการ (T33/45)
+    if fill_fee:
+        try:
+            r = apply_opd_fee_fix(working, codes=_split_codes(codes), amount=amount)
+            working, fee_rows = r.files, r.rows_changed
+            changes += r.changes
+        except ValueError as e:
+            errors.append(str(e))
+
+    # 2) ปรับยอดหัวบิลให้ตรงผลรวมรายการ (A04/T33/T45) — ต้องทำหลังข้อ 1 เสมอ
+    if sync_totals:
+        try:
+            r = apply_total_sync(working)
+            working, total_rows = r.files, r.rows_changed
+            changes += r.changes
+        except ValueError as e:
+            errors.append(str(e))
+
+    if fee_rows == 0 and total_rows == 0:
+        raise HTTPException(422, " · ".join(errors) or "ไม่พบแถวที่ต้องแก้")
+
+    class _R:
+        files = working
+    result = _R()
 
     headers = {
-        "X-Rows-Changed": str(result.rows_changed),
-        "X-Fix-Changes": json.dumps(result.changes),
-        "Access-Control-Expose-Headers": "X-Rows-Changed, X-Fix-Changes, X-Filename",
+        "X-Rows-Changed": str(fee_rows + total_rows),
+        "X-Fee-Rows": str(fee_rows),
+        "X-Total-Rows": str(total_rows),
+        "X-Fix-Changes": json.dumps(changes),
+        "Access-Control-Expose-Headers": "X-Rows-Changed, X-Fee-Rows, X-Total-Rows, X-Fix-Changes, X-Filename",
     }
 
     billtran_name = next((n for n in contents if "BILLTRAN" in n.upper()), None)

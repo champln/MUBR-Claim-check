@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
@@ -766,6 +767,110 @@ def apply_tmt_fix(files: Dict[str, bytes], rules: List[TmtRule]) -> TmtFixResult
         files=out, changes=changes,
         billitems_changed=counters["bi"], dispitems_changed=counters["di"],
     )
+
+
+# ─── ปรับยอดรวมใน BILLTRAN ให้ตรงผลรวม BillItems (ติด C รหัส A04 / T33 / T45) ──
+# ยอดรวม (ฟิลด์ 9) ต้องเท่ากับผลรวม "รวมเป็นเงิน" ของ BillItems
+# ยอดขอเบิก (ฟิลด์ 17) ต้องเท่ากับผลรวม "จำนวนเงินที่ขอเบิก" ของ BillItems
+# ส่วนต่างเกิดเมื่อ HIS ส่งยอดหัวบิลไม่ตรงกับรายการย่อย (เช่น รายการถูกลบทีหลัง)
+
+
+def _money(v: str) -> Decimal:
+    try:
+        return Decimal((v or "0").strip() or "0")
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def _fmt_money(v: Decimal) -> str:
+    return f"{v.quantize(Decimal('0.01')):.2f}"
+
+
+def _billitem_totals(bt: "CsopFile") -> Dict[str, Dict[str, Decimal]]:
+    """ผลรวมต่อ Inv.no จาก BillItems: ยอดรายการ / ที่ขอเบิก"""
+    totals: Dict[str, Dict[str, Decimal]] = {}
+    for row in bt.section_rows("BillItems"):
+        if len(row) <= BILLITEMS_REQUESTED_IDX:
+            continue
+        invno = _norm(row[0])
+        if not invno:
+            continue
+        acc = totals.setdefault(invno, {"amount": Decimal("0"), "requested": Decimal("0")})
+        acc["amount"] += _money(row[BILLITEMS_AMOUNT_IDX])
+        acc["requested"] += _money(row[BILLITEMS_REQUESTED_IDX])
+    return totals
+
+
+def _total_targets(files: Dict[str, bytes]) -> tuple:
+    """หา BILLTRAN แถวที่ยอดหัวบิลไม่ตรงผลรวมรายการ"""
+    billtran_name = _find(files, "BILLTRAN")
+    if not billtran_name:
+        raise ValueError("ไม่พบไฟล์ BILLTRAN ในชุดที่อัปโหลด")
+    bt = CsopFile.parse(files[billtran_name])
+    totals = _billitem_totals(bt)
+
+    targets: List[dict] = []
+    for row in bt.section_rows("BILLTRAN"):
+        if len(row) <= BILLTRAN_CLAIMAMT_IDX:
+            continue
+        invno = _norm(row[BILLTRAN_INVNO_IDX])
+        acc = totals.get(invno)
+        if not acc:
+            continue
+        cur_amt = _money(row[BILLTRAN_AMOUNT_IDX])
+        cur_claim = _money(row[BILLTRAN_CLAIMAMT_IDX])
+        new_amt, new_claim = acc["amount"], acc["requested"]
+        if cur_amt == new_amt and cur_claim == new_claim:
+            continue
+        targets.append({
+            "invno": invno,
+            "current_amount": _fmt_money(cur_amt),
+            "new_amount": _fmt_money(new_amt),
+            "amount_diff": _fmt_money(new_amt - cur_amt),
+            "current_claim": _fmt_money(cur_claim),
+            "new_claim": _fmt_money(new_claim),
+            "claim_diff": _fmt_money(new_claim - cur_claim),
+        })
+    return billtran_name, targets
+
+
+def preview_total_sync(files: Dict[str, bytes]) -> dict:
+    """ดูว่า visit ไหนยอดหัวบิลไม่ตรงผลรวมรายการ (ยังไม่แก้ไฟล์)"""
+    billtran_name, targets = _total_targets(files)
+    return {
+        "billtran_file": billtran_name,
+        "total_change_count": len(targets),
+        "rows": targets,
+    }
+
+
+def apply_total_sync(files: Dict[str, bytes]) -> "OpdFeeFixResult":
+    """ปรับยอดรวม/ยอดขอเบิกใน BILLTRAN ให้ตรงผลรวม BillItems แล้วเซ็น Checksum ใหม่"""
+    billtran_name, targets = _total_targets(files)
+    if not targets:
+        raise ValueError("ยอดใน BILLTRAN ตรงกับผลรวม BillItems อยู่แล้ว")
+
+    want = {t["invno"]: t for t in targets}
+    bt = CsopFile.parse(files[billtran_name])
+    counter = {"n": 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        if len(cols) <= BILLTRAN_CLAIMAMT_IDX:
+            return None
+        t = want.get(_norm(cols[BILLTRAN_INVNO_IDX]))
+        if not t:
+            return None
+        new = list(cols)
+        _set_field(new, BILLTRAN_AMOUNT_IDX, t["new_amount"])
+        _set_field(new, BILLTRAN_CLAIMAMT_IDX, t["new_claim"])
+        counter["n"] += 1
+        return new
+
+    bt.edit_section("BILLTRAN", fix)
+    out: Dict[str, bytes] = dict(files)
+    out[billtran_name] = bt.to_bytes()
+    changes = [f"{billtran_name}: ปรับยอดรวม/ยอดขอเบิกให้ตรงผลรวมรายการ {counter['n']} visit"] if counter["n"] else []
+    return OpdFeeFixResult(files=out, changes=changes, rows_changed=counter["n"])
 
 
 # ─── แก้วันที่ให้บริการใน BillItems (ติด C รหัส T42) ───────────────────────────

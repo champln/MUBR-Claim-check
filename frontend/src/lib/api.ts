@@ -654,16 +654,29 @@ export interface OpdFeeRow {
   new_value: string
 }
 
+export interface OpdTotalRow {
+  invno: string
+  current_amount: string
+  new_amount: string
+  amount_diff: string
+  current_claim: string
+  new_claim: string
+  claim_diff: string
+}
+
 export interface OpdFeePreviewResult {
   billtran_file: string
   total_change_count: number
   rows: OpdFeeRow[]
   codes_used: string[]
+  totals: { billtran_file: string | null; total_change_count: number; rows: OpdTotalRow[]; error?: string }
 }
 
 export interface OpdFeeOpts {
   codes?: string
   amount?: string
+  fillFee?: boolean
+  syncTotals?: boolean
 }
 
 function buildOpdFeeForm(files: File[], opts: OpdFeeOpts): FormData {
@@ -671,6 +684,8 @@ function buildOpdFeeForm(files: File[], opts: OpdFeeOpts): FormData {
   files.forEach(f => fd.append('files', f))
   if (opts.codes?.trim()) fd.append('codes', opts.codes.trim())
   fd.append('amount', opts.amount?.trim() || '')
+  fd.append('fill_fee', String(opts.fillFee !== false))
+  fd.append('sync_totals', String(opts.syncTotals !== false))
   return fd
 }
 
@@ -680,7 +695,7 @@ export const previewOpdFeeFix = (files: File[], opts: OpdFeeOpts = {}) =>
 export const applyOpdFeeFix = async (
   files: File[],
   opts: OpdFeeOpts = {},
-): Promise<{ rowsChanged: number; changes: string[]; filename: string }> => {
+): Promise<{ rowsChanged: number; feeRows: number; totalRows: number; changes: string[]; filename: string }> => {
   const res = await api.post('/opd-fee-fix/apply', buildOpdFeeForm(files, opts), { responseType: 'blob' })
   let changes: string[] = []
   try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
@@ -691,7 +706,12 @@ export const applyOpdFeeFix = async (
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
-  return { rowsChanged: Number(res.headers['x-rows-changed'] || 0), changes, filename }
+  return {
+    rowsChanged: Number(res.headers['x-rows-changed'] || 0),
+    feeRows: Number(res.headers['x-fee-rows'] || 0),
+    totalRows: Number(res.headers['x-total-rows'] || 0),
+    changes, filename,
+  }
 }
 
 // ─── แก้ไฟล์ระดับฟิลด์ในหน้า "ตรวจไฟล์ส่งเบิก" + เซ็น MD5 ใหม่ ──────────────────

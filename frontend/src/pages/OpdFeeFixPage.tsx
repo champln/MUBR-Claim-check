@@ -11,6 +11,8 @@ export default function OpdFeeFixPage() {
   const [preview, setPreview] = useState<OpdFeePreviewResult | null>(null)
   const [codes, setCodes] = useState('')
   const [amount, setAmount] = useState('')
+  const [fillFee, setFillFee] = useState(true)
+  const [syncTotals, setSyncTotals] = useState(true)
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(prev => {
@@ -25,22 +27,24 @@ export default function OpdFeeFixPage() {
     accept: { 'text/plain': ['.txt'], 'application/zip': ['.zip'], 'application/x-zip-compressed': ['.zip'] },
   })
 
-  const opts = useMemo(() => ({ codes, amount }), [codes, amount])
+  const opts = useMemo(() => ({ codes, amount, fillFee, syncTotals }), [codes, amount, fillFee, syncTotals])
   const canRun = files.length > 0
 
   const previewMutation = useMutation({
     mutationFn: () => previewOpdFeeFix(files, opts),
     onSuccess: (res) => {
       setPreview(res)
-      if (res.total_change_count === 0) toast('ไม่พบรายการที่ต้องเติมยอดเบิกในไฟล์นี้', { icon: '✅' })
-      else toast.success(`จะเติมยอดเบิก ${res.total_change_count} รายการ`)
+      const totals = res.totals?.total_change_count || 0
+      if (res.total_change_count === 0 && totals === 0) toast('ไม่พบสิ่งที่ต้องแก้ในไฟล์นี้', { icon: '✅' })
+      else toast.success(`เติมยอดเบิก ${res.total_change_count} รายการ · ปรับยอดหัวบิล ${totals} visit`)
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'ตรวจสอบไม่สำเร็จ'),
   })
 
   const applyMutation = useMutation({
     mutationFn: () => applyOpdFeeFix(files, opts),
-    onSuccess: (res) => toast.success(`เติมยอดเบิก ${res.rowsChanged} รายการ — ดาวน์โหลด ${res.filename}`),
+    onSuccess: (res) => toast.success(
+      `เติมยอดเบิก ${res.feeRows} รายการ · ปรับยอดหัวบิล ${res.totalRows} visit — ดาวน์โหลด ${res.filename}`),
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
 
@@ -53,7 +57,7 @@ export default function OpdFeeFixPage() {
     <div className="space-y-6 max-w-5xl">
       <div>
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Receipt className="w-5 h-5 text-amber-600" /> เติมยอดเบิกค่าบริการ ผป.นอก (C: T33 / 45)
+          <Receipt className="w-5 h-5 text-amber-600" /> แก้ยอดค่าบริการ ผป.นอก (C: A04 / T33 / T45)
         </h2>
         <p className="text-sm text-gray-500 mt-0.5">
           เติม <b>จำนวนเงินที่เบิกได้</b> (ฟิลด์ 10) และ <b>จำนวนเงินที่ขอเบิก</b> (ฟิลด์ 11) ใน BillItems แล้วเซ็น Checksum ใหม่
@@ -65,6 +69,10 @@ export default function OpdFeeFixPage() {
           </div>
           <div className="text-gray-500">
             ระบบดูที่รหัสมาตรฐานของรายการ ไม่ใช่ไล่แก้ทุกแถวที่เป็น 0.00 — รายการอื่นที่ยอดเบิกเป็น 0.00 โดยตั้งใจ (เช่น ค่าธรรมเนียมโรงพยาบาล) จะไม่ถูกแตะ
+          </div>
+          <div className="pt-1 border-t border-amber-100 mt-1">
+            <b>ปรับยอดหัวบิล</b> — ยอดรวม (ฟิลด์ 9) และยอดขอเบิก (ฟิลด์ 17) ใน BILLTRAN ต้องเท่ากับผลรวมของรายการใน BillItems
+            ถ้าไม่ตรงจะปรับให้ตาม <b>ผลรวมรายการจริง</b> (ทำหลังเติมยอดเบิกเสมอ ตัวเลขจึงตรงกันแน่นอน)
           </div>
         </div>
       </div>
@@ -95,7 +103,24 @@ export default function OpdFeeFixPage() {
 
       {/* 2. ตั้งค่า */}
       <div className="card p-5 space-y-3">
-        <h3 className="font-semibold text-gray-800 text-sm">2. ตั้งค่า (ปกติไม่ต้องแก้)</h3>
+        <h3 className="font-semibold text-gray-800 text-sm">2. จะให้แก้อะไรบ้าง</h3>
+        <div className="space-y-2 pb-2">
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={fillFee} onChange={e => { setFillFee(e.target.checked); setPreview(null) }}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-400" />
+            <span>
+              <span className="text-sm text-gray-700">เติมยอดเบิกของรายการค่าบริการที่เป็น 0.00 (T33/45)</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={syncTotals} onChange={e => { setSyncTotals(e.target.checked); setPreview(null) }}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-400" />
+            <span>
+              <span className="text-sm text-gray-700">ปรับยอดรวม/ยอดขอเบิกใน BILLTRAN ให้ตรงผลรวมรายการ (A04)</span>
+            </span>
+          </label>
+        </div>
+        <h3 className="font-semibold text-gray-800 text-sm pt-1 border-t">3. ตั้งค่ารหัสรายการ (ปกติไม่ต้องแก้)</h3>
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="text-[11px] text-gray-500 block mb-1">รหัสรายการที่จะเติม (คั่นด้วยเว้นวรรค/คอมมา)</label>
@@ -173,6 +198,44 @@ export default function OpdFeeFixPage() {
               </tbody>
             </table>
           </div>
+
+          {preview.totals && preview.totals.total_change_count > 0 && (
+            <div className="border-t">
+              <div className="px-4 py-2.5 bg-amber-50/60 text-sm font-medium text-amber-800">
+                ยอดหัวบิลไม่ตรงผลรวมรายการ {preview.totals.total_change_count} visit (A04) — จะปรับให้ตามผลรวมจริง
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-white border-b text-xs text-gray-500 uppercase">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Inv.no</th>
+                      <th className="px-3 py-2 text-right">ยอดรวม (ฟิลด์ 9)</th>
+                      <th className="px-3 py-2 text-right">ส่วนต่าง</th>
+                      <th className="px-3 py-2 text-right">ยอดขอเบิก (ฟิลด์ 17)</th>
+                      <th className="px-3 py-2 text-right">ส่วนต่าง</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {preview.totals.rows.map((t, i) => (
+                      <tr key={i} className="hover:bg-amber-50/30">
+                        <td className="px-3 py-2 font-mono">{t.invno}</td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          <span className="text-gray-400">{t.current_amount}</span>
+                          <span className="text-amber-700 font-semibold"> → {t.new_amount}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-rose-600">{t.amount_diff}</td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          <span className="text-gray-400">{t.current_claim}</span>
+                          <span className="text-amber-700 font-semibold"> → {t.new_claim}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-rose-600">{t.claim_diff}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
