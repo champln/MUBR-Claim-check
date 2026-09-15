@@ -18,6 +18,7 @@ from models import (
 )
 from services.claim_file_parser import parse_claim_files, detect_fund_type_from_content
 from services.claim_file_validator import validate_claim_records
+from services.raw_row_editor import apply_edits, read_sections
 
 router = APIRouter(prefix="/claim-files", tags=["Claim File Check"])
 
@@ -92,6 +93,12 @@ async def upload_claim_files(
     ระบบจะ detect ประเภทกองทุนอัตโนมัติ parse และ validate
     """
     contents: dict[str, bytes] = {}
+    # ชื่อ zip เดิม — คืนไฟล์ผลลัพธ์ด้วยชื่อเดิมเสมอ (กองทุนต้องการรูปแบบชื่อเดิม)
+    orig_zip_name = next(
+        (f.filename.split("/")[-1].split("\\")[-1]
+         for f in files if f.filename and f.filename.lower().endswith(".zip")),
+        None,
+    )
 
     for upload in files:
         fname = upload.filename or "unknown"
@@ -140,6 +147,14 @@ async def upload_claim_files(
         status=ClaimFileSessionStatus.COMPLETED,
         uploaded_by_id=current_user.id,
     )
+    # เก็บไฟล์ต้นฉบับไว้ (zip) เพื่อให้แก้ระดับฟิลด์แล้วเซ็น Checksum ใหม่ได้ภายหลัง
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, data in contents.items():
+            zf.writestr(fname, data)
+    session.source_zip = buf.getvalue()
+    session.source_filename = orig_zip_name or f"{session_name}.zip"
+
     db.add(session)
     db.flush()
 
@@ -377,3 +392,143 @@ def export_summary(
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=claim_check_{session_id}.json"},
     )
+
+
+# ─── แก้ไขไฟล์ระดับฟิลด์ + เซ็น Checksum ใหม่ ────────────────────────────────────
+
+class RawEdit(BaseModel):
+    file: str
+    section: str
+    row: int        # ลำดับแถวในsection (เริ่มที่ 0)
+    field: int      # ลำดับฟิลด์ (เริ่มที่ 0)
+    value: str
+
+
+class RawEditsRequest(BaseModel):
+    edits: List[RawEdit]
+    replace: bool = False   # True = แทนที่รายการแก้ไขเดิมทั้งหมด
+
+
+def _load_source(session: ClaimFileSession) -> dict:
+    if not session.source_zip:
+        raise HTTPException(
+            422,
+            "session นี้อัปโหลดก่อนระบบจะเก็บไฟล์ต้นฉบับ — กรุณาอัปโหลดไฟล์ใหม่อีกครั้งเพื่อแก้ไขระดับฟิลด์",
+        )
+    with zipfile.ZipFile(io.BytesIO(session.source_zip)) as zf:
+        return {n: zf.read(n) for n in zf.namelist()}
+
+
+def _stored_edits(session: ClaimFileSession) -> List[dict]:
+    if not session.raw_edits:
+        return []
+    try:
+        data = json.loads(session.raw_edits)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _get_session_or_404(session_id: int, db: Session) -> ClaimFileSession:
+    s = db.query(ClaimFileSession).filter(ClaimFileSession.id == session_id).first()
+    if not s:
+        raise HTTPException(404, "ไม่พบ session")
+    return s
+
+
+@router.get("/{session_id}/raw")
+def get_raw(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """อ่านไฟล์ทั้งชุดเป็นตารางระดับฟิลด์ (ใช้ค่าที่แก้ไว้แล้วถ้ามี)"""
+    s = _get_session_or_404(session_id, db)
+    files = _load_source(s)
+    edits = _stored_edits(s)
+    if edits:
+        try:
+            files = apply_edits(files, edits)
+        except ValueError as e:
+            raise HTTPException(422, f"ใช้รายการแก้ไขที่บันทึกไว้ไม่สำเร็จ: {e}")
+    return {
+        "session_id": s.id,
+        "source_filename": s.source_filename,
+        "pending_edits": len(edits),
+        "files": read_sections(files),
+    }
+
+
+@router.patch("/{session_id}/raw")
+def patch_raw(
+    session_id: int,
+    body: RawEditsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """บันทึกการแก้ไขระดับฟิลด์ (ยังไม่สร้างไฟล์ — ตรวจว่าใช้ได้จริงก่อนเก็บ)"""
+    s = _get_session_or_404(session_id, db)
+    files = _load_source(s)
+
+    incoming = [e.model_dump() if hasattr(e, "model_dump") else e.dict() for e in body.edits]
+    merged = [] if body.replace else _stored_edits(s)
+    # แก้ช่องเดิมซ้ำ = ทับของเดิม
+    index = {(e["file"], e["section"], e["row"], e["field"]): e for e in merged}
+    for e in incoming:
+        index[(e["file"], e["section"], e["row"], e["field"])] = e
+    merged = list(index.values())
+
+    try:
+        apply_edits(files, merged)   # ตรวจว่าใช้ได้จริง
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    s.raw_edits = json.dumps(merged, ensure_ascii=False)
+    db.commit()
+    return {"saved": len(incoming), "pending_edits": len(merged)}
+
+
+@router.delete("/{session_id}/raw")
+def reset_raw(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ล้างการแก้ไขทั้งหมด กลับไปใช้ไฟล์ต้นฉบับ"""
+    s = _get_session_or_404(session_id, db)
+    s.raw_edits = None
+    db.commit()
+    return {"pending_edits": 0}
+
+
+@router.get("/{session_id}/raw/download")
+def download_raw(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """สร้างไฟล์ที่แก้แล้ว เซ็น Checksum (MD5) ใหม่ และดาวน์โหลดเป็น zip ชื่อเดิม"""
+    s = _get_session_or_404(session_id, db)
+    files = _load_source(s)
+    edits = _stored_edits(s)
+    if not edits:
+        raise HTTPException(422, "ยังไม่มีการแก้ไข — ไม่มีอะไรให้ดาวน์โหลด")
+    try:
+        files = apply_edits(files, edits)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    touched = sorted({e["file"] for e in edits})
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    zip_name = s.source_filename or f"claim_{s.id}.zip"
+    headers = {
+        "Content-Disposition": f"attachment; filename={zip_name}",
+        "X-Filename": zip_name,
+        "X-Edit-Count": str(len(edits)),
+        "X-Files-Changed": json.dumps(touched, ensure_ascii=False),
+        "Access-Control-Expose-Headers": "X-Filename, X-Edit-Count, X-Files-Changed",
+    }
+    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)

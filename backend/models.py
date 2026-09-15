@@ -300,6 +300,11 @@ class ClaimFileSession(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # ไฟล์ต้นฉบับที่อัปโหลด (zip) — เก็บไว้เพื่อแก้ไขระดับฟิลด์แล้วเซ็น Checksum ใหม่
+    source_zip = Column(LargeBinary)
+    source_filename = Column(String(255))
+    raw_edits = Column(Text)        # JSON: [{file, section, row, field, value}]
+
     records = relationship("ClaimFileRecord", back_populates="session", cascade="all, delete-orphan")
 
 

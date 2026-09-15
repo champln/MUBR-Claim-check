@@ -17,6 +17,7 @@ import LoginPage from './pages/LoginPage'
 import AccountPage from './pages/AccountPage'
 import ClaimFilePage from './pages/ClaimFilePage'
 import ClaimFileDetailPage from './pages/ClaimFileDetailPage'
+import ClaimFileRawEditPage from './pages/ClaimFileRawEditPage'
 import CpapFixPage from './pages/CpapFixPage'
 import Covid19FixPage from './pages/Covid19FixPage'
 import RamaSh50Page from './pages/RamaSh50Page'
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route path="/system-settings" element={<SettingsPage view="system" />} />
             <Route path="/claim-files" element={<ClaimFilePage />} />
             <Route path="/claim-files/:sessionId" element={<ClaimFileDetailPage />} />
+            <Route path="/claim-files/:sessionId/edit" element={<ClaimFileRawEditPage />} />
             <Route path="/cpap-fix" element={<CpapFixPage />} />
             <Route path="/covid19-fix" element={<Covid19FixPage />} />
             <Route path="/rama-sh50" element={<RamaSh50Page />} />

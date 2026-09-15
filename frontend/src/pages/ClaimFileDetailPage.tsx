@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, AlertCircle, AlertTriangle, CheckCircle2,
-  Download, Search, Pencil, Save, X, ChevronDown, ChevronUp, Info
+  Download, Search, Pencil, Save, X, ChevronDown, ChevronUp, Info, Table2
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -83,13 +83,23 @@ export default function ClaimFileDetailPage() {
             </div>
           </div>
         </div>
-        <button
-          onClick={() => session && exportClaimFileSummary(id, session.session_name)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          Export JSON
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(`/claim-files/${id}/edit`)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+            title="แก้ไขได้ทุกฟิลด์ แล้วเซ็น Checksum (MD5) ใหม่"
+          >
+            <Table2 className="w-4 h-4" />
+            แก้ไขไฟล์ + เซ็น MD5
+          </button>
+          <button
+            onClick={() => session && exportClaimFileSummary(id, session.session_name)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Export JSON
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}

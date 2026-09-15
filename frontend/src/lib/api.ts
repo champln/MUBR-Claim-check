@@ -694,6 +694,64 @@ export const applyOpdFeeFix = async (
   return { rowsChanged: Number(res.headers['x-rows-changed'] || 0), changes, filename }
 }
 
+// ─── แก้ไฟล์ระดับฟิลด์ในหน้า "ตรวจไฟล์ส่งเบิก" + เซ็น MD5 ใหม่ ──────────────────
+
+export interface RawSection {
+  section: string
+  labels: string[]
+  rows: string[][]
+}
+
+export interface RawFile {
+  file: string
+  editable: boolean
+  checksum_ok: boolean | null
+  reason: string
+  sections: RawSection[]
+}
+
+export interface RawViewResult {
+  session_id: number
+  source_filename: string | null
+  pending_edits: number
+  files: RawFile[]
+}
+
+export interface RawEdit {
+  file: string
+  section: string
+  row: number
+  field: number
+  value: string
+}
+
+export const getClaimFileRaw = (sessionId: number) =>
+  api.get<RawViewResult>(`/claim-files/${sessionId}/raw`).then(r => r.data)
+
+export const saveClaimFileRawEdits = (sessionId: number, edits: RawEdit[], replace = false) =>
+  api.patch<{ saved: number; pending_edits: number }>(
+    `/claim-files/${sessionId}/raw`, { edits, replace },
+  ).then(r => r.data)
+
+export const resetClaimFileRawEdits = (sessionId: number) =>
+  api.delete<{ pending_edits: number }>(`/claim-files/${sessionId}/raw`).then(r => r.data)
+
+export const downloadClaimFileRaw = async (
+  sessionId: number,
+): Promise<{ filename: string; editCount: number; filesChanged: string[] }> => {
+  const res = await api.get(`/claim-files/${sessionId}/raw/download`, { responseType: 'blob' })
+  const filename = res.headers['x-filename'] || 'claim_fixed.zip'
+  let filesChanged: string[] = []
+  try { filesChanged = JSON.parse(res.headers['x-files-changed'] || '[]') } catch { /* ignore */ }
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { filename, editCount: Number(res.headers['x-edit-count'] || 0), filesChanged }
+}
+
 // ─── แก้วันที่ให้บริการใน BillItems (ติด C รหัส T42) ──────────────────────────
 
 export interface SvDateRow {

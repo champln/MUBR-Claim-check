@@ -34,6 +34,15 @@ def _ensure_columns():
         if "claim_types" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE cpap_fix_sessions ADD COLUMN claim_types VARCHAR(50)"))
+    if "claim_file_sessions" in tables:
+        cols = {c["name"] for c in insp.get_columns("claim_file_sessions")}
+        with engine.begin() as conn:
+            if "source_zip" not in cols:
+                conn.execute(text("ALTER TABLE claim_file_sessions ADD COLUMN source_zip BLOB"))
+            if "source_filename" not in cols:
+                conn.execute(text("ALTER TABLE claim_file_sessions ADD COLUMN source_filename VARCHAR(255)"))
+            if "raw_edits" not in cols:
+                conn.execute(text("ALTER TABLE claim_file_sessions ADD COLUMN raw_edits TEXT"))
     if "hosxp_connection_config" in tables:
         cols = {c["name"] for c in insp.get_columns("hosxp_connection_config")}
         with engine.begin() as conn:
