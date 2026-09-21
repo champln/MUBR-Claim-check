@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   Upload, FileText, Trash2, AlertCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, FilePlus2
+  AlertTriangle, ChevronRight, FilePlus2, Table2
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -93,7 +93,7 @@ export default function ClaimFilePage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">ตรวจสอบไฟล์ส่งเบิก</h1>
         <p className="text-sm text-gray-500 mt-1">
-          อัปโหลดไฟล์ CHI export / AIPN / Eclaim เพื่อตรวจหาข้อผิดพลาดและเงื่อนไขติด C
+          อัปโหลดไฟล์ CHI export / AIPN / Eclaim เพื่อตรวจหาข้อผิดพลาดและเงื่อนไขติด C — แล้วกด "แก้ไขไฟล์ + MD5" เพื่อแก้ได้ทุกฟิลด์และเซ็น Checksum ใหม่
         </p>
       </div>
 
@@ -206,6 +206,7 @@ export default function ClaimFilePage() {
                 key={s.id}
                 session={s}
                 onOpen={() => navigate(`/claim-files/${s.id}`)}
+                onEdit={() => navigate(`/claim-files/${s.id}/edit`)}
                 onDelete={() => {
                   if (confirm('ลบ session นี้?')) deleteMutation.mutate(s.id)
                 }}
@@ -221,10 +222,12 @@ export default function ClaimFilePage() {
 function SessionRow({
   session: s,
   onOpen,
+  onEdit,
   onDelete,
 }: {
   session: ClaimFileSession
   onOpen: () => void
+  onEdit: () => void
   onDelete: () => void
 }) {
   const filesInfo: string[] = s.files_info ? JSON.parse(s.files_info) : []
@@ -267,6 +270,26 @@ function SessionRow({
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {s.has_source ? (
+          <button
+            onClick={onEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+            title="แก้ได้ทุกฟิลด์ แล้วเซ็น Checksum (MD5) ใหม่"
+          >
+            <Table2 className="w-3.5 h-3.5" />
+            แก้ไขไฟล์ + MD5
+            {!!s.pending_edits && (
+              <span className="bg-white/25 rounded px-1">{s.pending_edits}</span>
+            )}
+          </button>
+        ) : (
+          <span
+            className="text-[11px] text-gray-400 px-2"
+            title="session นี้อัปโหลดก่อนมีฟีเจอร์แก้ไฟล์ — อัปโหลดไฟล์ชุดนี้ใหม่อีกครั้งเพื่อแก้ไข"
+          >
+            แก้ไฟล์ไม่ได้ (อัปโหลดใหม่)
+          </span>
+        )}
         <button
           onClick={onDelete}
           className="p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-red-50 transition-colors"

@@ -68,6 +68,8 @@ class ClaimFileSessionOut(BaseModel):
     warning_count: int
     status: ClaimFileSessionStatus
     created_at: Any
+    has_source: bool = False       # แก้ไขระดับฟิลด์ + เซ็น MD5 ได้ไหม
+    pending_edits: int = 0         # จำนวนช่องที่แก้ค้างไว้
 
     class Config:
         from_attributes = True

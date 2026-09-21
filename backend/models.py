@@ -307,6 +307,20 @@ class ClaimFileSession(Base):
 
     records = relationship("ClaimFileRecord", back_populates="session", cascade="all, delete-orphan")
 
+    @property
+    def has_source(self) -> bool:
+        """เก็บไฟล์ต้นฉบับไว้ไหม (session เก่าก่อนมีฟีเจอร์แก้ระดับฟิลด์ = ไม่มี)"""
+        return bool(self.source_zip)
+
+    @property
+    def pending_edits(self) -> int:
+        import json as _json
+        try:
+            data = _json.loads(self.raw_edits) if self.raw_edits else []
+            return len(data) if isinstance(data, list) else 0
+        except Exception:
+            return 0
+
 
 class ClaimFileRecord(Base):
     """Record แต่ละ visit จากไฟล์ส่งเบิก"""

@@ -29,6 +29,8 @@ export interface ClaimFileSession {
   warning_count: number
   status: ClaimFileSessionStatus
   created_at: string
+  has_source?: boolean      // แก้ไขระดับฟิลด์ + เซ็น MD5 ได้ไหม
+  pending_edits?: number    // จำนวนช่องที่แก้ค้างไว้
 }
 
 export interface ClaimIssue {

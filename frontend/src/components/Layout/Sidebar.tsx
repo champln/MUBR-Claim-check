@@ -16,7 +16,7 @@ const navItems = [
   { to: '/rama-sh50', icon: HeartPulse, label: 'เติมข้อมูล ปกส.รามา SH50' },
   { to: '/tmt-fix', icon: Pill, label: 'แก้ไขรหัส TMT ยา' },
   { to: '/stdcode-fix', icon: Stethoscope, label: 'แก้รหัสหัตถการ (S19/S41)' },
-  { to: '/opd-fee-fix', icon: Receipt, label: 'เติมยอดเบิกค่าบริการ (T33/45)' },
+  { to: '/opd-fee-fix', icon: Receipt, label: 'แก้ยอดค่าบริการ (A04/T33/45)' },
   { to: '/svdate-fix', icon: CalendarClock, label: 'แก้วันที่ให้บริการ (T42)' },
   { to: '/reports', icon: BarChart3, label: 'รายงาน' },
   { to: '/account', icon: UserCog, label: 'บัญชีผู้ใช้' },
