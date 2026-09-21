@@ -2,6 +2,7 @@
 API router: File Claim Check & Correction
 """
 import json
+import re
 import io
 import zipfile
 from typing import Optional
@@ -80,6 +81,80 @@ class EditRecordRequest(BaseModel):
 
 
 # ─── Upload & parse ───────────────────────────────────────────────────────────
+
+# ─── อ่านข้อมูลงวดจากไฟล์ (เติมฟอร์มอัตโนมัติ) ────────────────────────────────
+
+_DATE_RE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
+
+
+def _visit_month(value: str):
+    """'2026-03-10 08:00:00' / '20260310' / '2569-03-10' -> (ปี พ.ศ., เดือน)"""
+    m = _DATE_RE.search(value or "")
+    if not m:
+        return None
+    y, mo = int(m.group(1)), int(m.group(2))
+    if not 1 <= mo <= 12:
+        return None
+    return (y if y > 2400 else y + 543), mo
+
+
+@router.post("/inspect")
+async def inspect_claim_files(
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    อ่านไฟล์แบบยังไม่บันทึก เพื่อเติมฟอร์ม: ประเภทกองทุน, เลขงวด, เดือน/ปีที่รับบริการ
+    เดือน = เดือนที่รับบริการที่มี visit มากที่สุด (ไม่ใช่วันที่ export)
+    """
+    contents: dict[str, bytes] = {}
+    for upload in files:
+        fname = upload.filename or "unknown"
+        raw = await upload.read()
+        if fname.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                    for zname in zf.namelist():
+                        base = zname.split("/")[-1].split("\\")[-1]
+                        if base and not base.startswith("."):
+                            contents[base] = zf.read(zname)
+            except Exception:
+                continue
+        else:
+            contents[fname.split("/")[-1].split("\\")[-1]] = raw
+    if not contents:
+        raise HTTPException(400, "ไม่พบไฟล์ที่อ่านได้")
+
+    try:
+        records, fund_type = parse_claim_files(contents)
+    except Exception as e:
+        raise HTTPException(422, f"อ่านไฟล์ไม่สำเร็จ: {e}")
+
+    counts: dict = {}
+    for rec in records:
+        ym = _visit_month(str(rec.get("visit_date") or rec.get("datetime") or rec.get("admit_date") or ""))
+        if ym:
+            counts[ym] = counts.get(ym, 0) + 1
+
+    # เลขงวดจาก header ของ CHI (ไม่มีใน AIPN/LGO ก็ปล่อยว่าง)
+    sessno = ""
+    for name, data in contents.items():
+        m = re.search(rb"<SESSNO>\s*([^<\s]+)\s*</SESSNO>", data)
+        if m:
+            sessno = m.group(1).decode("ascii", "ignore")
+            break
+
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = ranked[0][0] if ranked else None
+    return {
+        "fund_type": fund_type,
+        "sessno": sessno,
+        "record_count": len(records),
+        "period_year": top[0] if top else None,
+        "period_month": top[1] if top else None,
+        "months": [{"year": y, "month": mo, "count": c} for (y, mo), c in ranked],
+    }
+
 
 @router.post("/upload", response_model=ClaimFileSessionOut)
 async def upload_claim_files(

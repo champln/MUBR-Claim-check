@@ -75,7 +75,7 @@ export default function ClaimFileDetailPage() {
                     {FUND_TYPE_LABELS[session.fund_type]}
                   </span>
                   {session.period_month && session.period_year && (
-                    <span>{MONTHS_TH[(session.period_month ?? 1) - 1]} {session.period_year}</span>
+                    <span>{MONTHS_TH[session.period_month ?? 1]} {session.period_year}</span>
                   )}
                   <span>{session.total_records} records</span>
                 </>

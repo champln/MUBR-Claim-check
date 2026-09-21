@@ -270,6 +270,22 @@ export const uploadClaimFiles = (formData: FormData) =>
     timeout: 120000,
   }).then(r => r.data)
 
+export interface ClaimFileInspect {
+  fund_type: import('../types/claimFile').ClaimFundType
+  sessno: string
+  record_count: number
+  period_year: number | null   // พ.ศ.
+  period_month: number | null
+  months: { year: number; month: number; count: number }[]
+}
+
+// อ่านไฟล์แบบยังไม่บันทึก เพื่อเติมชื่อ session / เดือน / ปี อัตโนมัติ
+export const inspectClaimFiles = (files: File[]) => {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  return api.post<ClaimFileInspect>('/claim-files/inspect', fd, { timeout: 60000 }).then(r => r.data)
+}
+
 export const getClaimFileSessions = (params?: { skip?: number; limit?: number }) =>
   api.get<ClaimFileSession[]>('/claim-files/', { params }).then(r => r.data)
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -9,7 +9,8 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
-  uploadClaimFiles, getClaimFileSessions, deleteClaimFileSession
+  uploadClaimFiles, getClaimFileSessions, deleteClaimFileSession, inspectClaimFiles,
+  type ClaimFileInspect,
 } from '../lib/api'
 import type { ClaimFileSession } from '../types/claimFile'
 import { FUND_TYPE_LABELS } from '../types/claimFile'
@@ -26,6 +27,33 @@ export default function ClaimFilePage() {
   const [sessionName, setSessionName] = useState('')
   const [month, setMonth] = useState<number>(new Date().getMonth() + 1)
   const [year, setYear] = useState<number>(new Date().getFullYear() + 543)
+  // ผู้ใช้พิมพ์ชื่อเองแล้วหรือยัง — ถ้าพิมพ์แล้ว จะไม่เขียนทับด้วยชื่ออัตโนมัติ
+  const [nameTouched, setNameTouched] = useState(false)
+  const [detected, setDetected] = useState<ClaimFileInspect | null>(null)
+  const [inspecting, setInspecting] = useState(false)
+
+  const autoFill = async (all: File[]) => {
+    if (!all.length) { setDetected(null); return }
+    setInspecting(true)
+    try {
+      const info = await inspectClaimFiles(all)
+      setDetected(info)
+      if (info.period_month) setMonth(info.period_month)
+      if (info.period_year) setYear(info.period_year)
+      if (!nameTouched) {
+        const parts = [FUND_TYPE_LABELS[info.fund_type] ?? info.fund_type]
+        if (info.sessno) parts.push(`งวด ${info.sessno}`)
+        if (info.period_month && info.period_year) {
+          parts.push(`${MONTHS_TH[info.period_month]} ${info.period_year}`)
+        }
+        setSessionName(parts.join(' · '))
+      }
+    } catch {
+      setDetected(null)   // อ่านไม่ได้ก็ไม่เป็นไร — ผู้ใช้กรอกเองได้
+    } finally {
+      setInspecting(false)
+    }
+  }
 
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ['claim-file-sessions'],
@@ -52,12 +80,12 @@ export default function ClaimFilePage() {
     },
   })
 
-  const onDrop = useCallback((accepted: File[]) => {
-    setFiles(prev => {
-      const names = new Set(prev.map(f => f.name))
-      return [...prev, ...accepted.filter(f => !names.has(f.name))]
-    })
-  }, [])
+  const onDrop = (accepted: File[]) => {
+    const names = new Set(files.map(f => f.name))
+    const next = [...files, ...accepted.filter(f => !names.has(f.name))]
+    setFiles(next)
+    autoFill(next)
+  }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -86,7 +114,11 @@ export default function ClaimFilePage() {
     uploadMutation.mutate(fd)
   }
 
-  const removeFile = (name: string) => setFiles(prev => prev.filter(f => f.name !== name))
+  const removeFile = (name: string) => {
+    const next = files.filter(f => f.name !== name)
+    setFiles(next)
+    autoFill(next)
+  }
 
   return (
     <div className="space-y-8">
@@ -111,7 +143,7 @@ export default function ClaimFilePage() {
             <input
               type="text"
               value={sessionName}
-              onChange={e => setSessionName(e.target.value)}
+              onChange={e => { setSessionName(e.target.value); setNameTouched(e.target.value.trim() !== '') }}
               placeholder="เช่น SSS OPD เดือน มี.ค. 2568"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
@@ -124,7 +156,7 @@ export default function ClaimFilePage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             >
               {MONTHS.map(m => (
-                <option key={m} value={m}>{MONTHS_TH[m - 1]}</option>
+                <option key={m} value={m}>{MONTHS_TH[m]}</option>
               ))}
             </select>
           </div>
@@ -135,10 +167,34 @@ export default function ClaimFilePage() {
               onChange={e => setYear(Number(e.target.value))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             >
-              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+              {(YEARS.includes(year) ? YEARS : [...YEARS, year].sort((a, b) => b - a))
+                .map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
         </div>
+
+        {(inspecting || detected) && (
+          <div className="text-xs rounded-lg px-3 py-2 bg-blue-50 border border-blue-100 text-blue-800">
+            {inspecting ? 'กำลังอ่านข้อมูลจากไฟล์...' : detected && (
+              <>
+                อ่านจากไฟล์อัตโนมัติ: <b>{FUND_TYPE_LABELS[detected.fund_type] ?? detected.fund_type}</b>
+                {detected.sessno && <> · งวด <b>{detected.sessno}</b></>}
+                {' '}· {detected.record_count} visit
+                {detected.period_month && detected.period_year && (
+                  <> · รับบริการเดือน <b>{MONTHS_TH[detected.period_month]} {detected.period_year}</b></>
+                )}
+                <span className="text-blue-500"> (แก้ไขเองได้)</span>
+                {detected.months.length > 1 && (
+                  <div className="text-amber-700 mt-1">
+                    ชุดนี้มี visit หลายเดือน:{' '}
+                    {detected.months.map(m => `${MONTHS_TH[m.month]} ${m.year} (${m.count})`).join(', ')}
+                    {' '}— เลือกเดือนที่มากสุดให้
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Dropzone */}
         <div
@@ -242,7 +298,7 @@ function SessionRow({
           </span>
           {s.period_month && s.period_year && (
             <span className="text-xs text-gray-400">
-              {MONTHS_TH[(s.period_month ?? 1) - 1]} {s.period_year}
+              {MONTHS_TH[s.period_month ?? 1]} {s.period_year}
             </span>
           )}
         </div>
