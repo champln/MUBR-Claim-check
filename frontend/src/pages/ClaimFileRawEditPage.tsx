@@ -16,11 +16,18 @@ type Draft = Record<string, string>   // key = "file|section|row|field"
 const key = (f: string, s: string, r: number, c: number) => `${f}|${s}|${r}|${c}`
 
 // ความกว้างคอลัมน์ตามความยาวข้อมูลจริง (px) — ชื่อรายการยาวก็กว้างขึ้น แต่ไม่เกินเพดาน
+function splitLabel(label: string): { spec: string; th: string } {
+  const [spec, th] = label.includes('|') ? label.split('|') : ['', label]
+  return { spec, th: th || spec }
+}
+
 function columnWidths(sec: RawSection): number[] {
   return sec.labels.map((label, c) => {
-    let longest = Math.max(label.length * 0.8, 6)
+    const { spec, th } = splitLabel(label)
+    // หัวคอลัมน์ขึ้นได้ 2 บรรทัด จึงคิดครึ่งหนึ่งของความยาวชื่อไทย
+    let longest = Math.max(Math.ceil(th.length / 2) + 2, spec.length, 6)
     for (const row of sec.rows) longest = Math.max(longest, (row[c] || '').length)
-    return Math.min(Math.max(Math.round(longest * 8.2) + 26, 96), 360)
+    return Math.min(Math.max(Math.round(longest * 9.6) + 30, 120), 420)
   })
 }
 
@@ -257,27 +264,27 @@ export default function ClaimFileRawEditPage() {
           {/* ตาราง */}
           <div ref={gridRef}
             className={clsx('overflow-auto border border-gray-300 rounded-lg bg-white shadow-sm',
-              fullscreen ? 'flex-1 min-h-0' : 'max-h-[calc(100vh-19rem)]')}>
+              fullscreen ? 'flex-1 min-h-0' : 'h-[calc(100vh-17rem)] min-h-[420px]')}>
             <table className="border-separate border-spacing-0 text-sm"
-              style={{ tableLayout: 'fixed', width: 52 + widths.reduce((a, b) => a + b, 0) }}>
+              style={{ tableLayout: 'fixed', width: 60 + widths.reduce((a, b) => a + b, 0) }}>
               <colgroup>
-                <col style={{ width: 52 }} />
+                <col style={{ width: 60 }} />
                 {widths.map((w, c) => <col key={c} style={{ width: w }} />)}
               </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-30 bg-gray-100 border-b border-r border-gray-300 text-[11px] text-gray-500 font-medium">#</th>
+                  <th className="sticky top-0 left-0 z-30 bg-slate-100 border-b-2 border-r border-gray-300 text-xs text-gray-500 font-semibold">แถว</th>
                   {sec.labels.map((label, c) => {
-                    const named = !label.startsWith('ฟิลด์ ')
+                    const { spec, th } = splitLabel(label)
                     return (
-                      <th key={c}
-                        className={clsx('sticky top-0 z-20 border-b border-r border-gray-300 px-2 py-1.5 text-left align-bottom',
-                          active?.c === c ? 'bg-indigo-100' : 'bg-gray-100')}>
-                        <div className="text-[10px] text-gray-400 font-mono">ฟิลด์ {c + 1}</div>
-                        <div className={clsx('text-xs truncate', named ? 'text-gray-800 font-semibold' : 'text-gray-400 font-normal')}
-                          title={label}>
-                          {named ? label : '—'}
+                      <th key={c} title={`ฟิลด์ ${c + 1}${spec ? ' · ' + spec : ''} — ${th}`}
+                        className={clsx('sticky top-0 z-20 border-b-2 border-r border-gray-300 px-2.5 py-2 text-left align-top',
+                          active?.c === c ? 'bg-indigo-100' : 'bg-slate-100')}>
+                        <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                          <span className="text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 rounded px-1">{c + 1}</span>
+                          {spec && <span className="text-[11px] font-mono text-gray-500">{spec}</span>}
                         </div>
+                        <div className="text-[13px] leading-snug text-gray-800 font-semibold mt-1 line-clamp-2">{th}</div>
                       </th>
                     )
                   })}
@@ -286,7 +293,7 @@ export default function ClaimFileRawEditPage() {
               <tbody>
                 {visibleRows.map(({ row, r }, pos) => (
                   <tr key={r} className="group">
-                    <td className={clsx('sticky left-0 z-10 border-b border-r border-gray-300 text-center text-[11px] font-mono',
+                    <td className={clsx('sticky left-0 z-10 border-b border-r border-gray-300 text-center text-sm font-mono',
                       active?.r === r ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'bg-gray-50 text-gray-400')}>
                       {r + 1}
                     </td>
@@ -309,7 +316,7 @@ export default function ClaimFileRawEditPage() {
                             onChange={e => setCell(k, e.target.value, cell)}
                             onKeyDown={e => onCellKey(e, pos, c, cell, k)}
                             className={clsx(
-                              'w-full h-8 px-2 bg-transparent outline-none font-mono text-[13px]',
+                              'w-full h-10 px-2.5 bg-transparent outline-none font-mono text-[15px] text-gray-900',
                               'focus:bg-white focus:ring-2 focus:ring-inset focus:ring-indigo-500 focus:relative focus:z-[5]',
                               edited && 'font-semibold text-amber-900',
                               !file.editable && 'text-gray-400 cursor-not-allowed',
@@ -329,8 +336,7 @@ export default function ClaimFileRawEditPage() {
 
           <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-100 border border-amber-400 rounded-sm" /> ช่องที่แก้ (ชี้ค้างเพื่อดูค่าเดิม)</span>
-            <span className="flex items-center gap-1.5"><span className="font-semibold text-gray-700">ชื่อตัวหนา</span> = ยืนยันความหมายแล้ว</span>
-            <span className="flex items-center gap-1.5"><span className="text-gray-400">—</span> = ยังไม่ยืนยันชื่อ ดูเลขฟิลด์แทน</span>
+            <span>หัวคอลัมน์: <b className="text-indigo-600">เลขฟิลด์</b> · ชื่อตามสเปก สกส. · ความหมาย</span>
             {draftCount > 0 && (
               <button onClick={() => setDraft({})} className="flex items-center gap-1 text-rose-500 hover:text-rose-600 ml-auto">
                 <Undo2 className="w-3.5 h-3.5" /> ยกเลิกที่ยังไม่บันทึกทั้งหมด
