@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from services.aipn_signer import sign_endnote
+from services.aipn_signer import ENDNOTE_RE, sign_endnote
 from services.csop_file_editor import ENCODING, split_endnote
 
 # ส่วนที่เป็นแถวคั่นด้วย | (แก้ได้เหมือนแฟ้ม OPD)
@@ -35,6 +35,8 @@ class CipnFile:
     """โมเดลไฟล์ CIPN แบบรักษาไบต์เดิม (แก้เฉพาะช่องที่สั่ง)"""
     head_text: str
     eol: str
+    tail: bytes = b""       # ไบต์หลังบรรทัดลายเซ็น (ปกติคือ CRLF) — เก็บไว้ให้เหมือนต้นฉบับ
+    endnote: bytes = b""    # บรรทัดลายเซ็นเดิม (ใช้เมื่อเลือกโหมด "คงลายเซ็นเดิม")
 
     @classmethod
     def parse(cls, raw: bytes) -> "CipnFile":
@@ -43,7 +45,10 @@ class CipnFile:
         head_text = head.decode(ENCODING)
         if head_text.encode(ENCODING) != head:
             raise ValueError("cp874 round-trip mismatch — ไฟล์มีไบต์นอกชุด cp874")
-        return cls(head_text=head_text, eol=eol)
+        m = ENDNOTE_RE.search(raw)
+        tail = raw[m.end():] if m else b""
+        endnote = raw[m.start():m.end()] if m else b""
+        return cls(head_text=head_text, eol=eol, tail=tail, endnote=endnote)
 
     # ── แท็กเดี่ยว ────────────────────────────────────────────────────────────
     def leaf_tags(self) -> List[dict]:
@@ -112,10 +117,17 @@ class CipnFile:
         return changed
 
     # ── serialize ────────────────────────────────────────────────────────────
-    def to_bytes(self) -> bytes:
-        """เซ็นลายเซ็นท้ายไฟล์ใหม่ — ต้องตั้งค่าคีย์/วิธีเซ็นไว้ก่อน"""
+    def to_bytes(self, sign_mode: str = "") -> bytes:
+        """
+        ประกอบไฟล์กลับ — เลือกวิธีจัดการลายเซ็นท้ายไฟล์ได้ 3 แบบ
+          keep  : คงลายเซ็นเดิมไว้ ไม่แตะ (ตรงกับการแก้ไฟล์ด้วยมือ)
+          plain : คำนวณ MD5 ใหม่แบบเดียวกับแฟ้มผู้ป่วยนอก (ไม่ใช้คีย์)
+          hmac  : เซ็นด้วย HMAC + คีย์ของโรงพยาบาล (ต้องตั้งค่าคีย์ก่อน)
+        """
         head = self.head_text.encode(ENCODING)
-        return head + sign_endnote(head).encode(ENCODING)
+        if (sign_mode or "").lower() == "keep":
+            return head + self.endnote + self.tail
+        return head + sign_endnote(head, sign_mode).encode(ENCODING) + self.tail
 
 
 def is_cipn(raw: bytes) -> bool:
@@ -321,7 +333,7 @@ def preview_daterev(raw: bytes, rules: Optional[Dict[str, str]] = None) -> dict:
     }
 
 
-def apply_daterev(raw: bytes, rules: Dict[str, str]) -> bytes:
+def apply_daterev(raw: bytes, rules: Dict[str, str], sign_mode: str = "") -> bytes:
     """เปลี่ยน DateRev ตามรหัสรายการ แล้วเซ็นลายเซ็นท้ายไฟล์ใหม่"""
     rules = {str(k).strip(): str(v).strip() for k, v in (rules or {}).items()
              if str(k).strip() and str(v).strip()}
@@ -348,4 +360,4 @@ def apply_daterev(raw: bytes, rules: Dict[str, str]) -> bytes:
     cf.edit_section("BillItems", fix)
     if not changed["n"]:
         raise ValueError("ไม่พบรายการที่ต้องแก้ — DateRev ตรงกับที่ระบุอยู่แล้ว")
-    return cf.to_bytes()
+    return cf.to_bytes(sign_mode)

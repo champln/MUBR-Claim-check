@@ -6,7 +6,7 @@ import {
   CalendarCheck, Upload, FileText, X, Search, Download, AlertTriangle, Lock, Wand2,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { previewDateRev, applyDateRev, type DateRevPreview } from '../lib/api'
+import { previewDateRev, applyDateRev, type DateRevPreview, type SignMode } from '../lib/api'
 
 export default function CipnDateRevPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -14,6 +14,7 @@ export default function CipnDateRevPage() {
   const [rules, setRules] = useState<Record<string, string>>({})   // รหัสรายการ -> วันที่ใหม่
   const [onlySuspect, setOnlySuspect] = useState(true)
   const [bulkDate, setBulkDate] = useState('')
+  const [signMode, setSignMode] = useState<SignMode>('keep')
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(accepted.slice(0, 1))
@@ -44,7 +45,7 @@ export default function CipnDateRevPage() {
   })
 
   const applyMutation = useMutation({
-    mutationFn: () => applyDateRev(files, rules),
+    mutationFn: () => applyDateRev(files, rules, signMode),
     onSuccess: (res) => toast.success(`แก้ DateRev แล้ว — ดาวน์โหลด ${res.filename}`),
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
@@ -112,15 +113,24 @@ export default function CipnDateRevPage() {
           <Search className="w-4 h-4" /> {previewMutation.isPending ? 'กำลังตรวจ...' : 'ตรวจสอบไฟล์'}
         </button>
         <button onClick={() => applyMutation.mutate()}
-          disabled={!canRun || ruleCount === 0 || applyMutation.isPending || (preview ? !preview.can_sign : false)}
+          disabled={!canRun || ruleCount === 0 || applyMutation.isPending}
           className="btn-primary">
           <Download className="w-4 h-4" /> {applyMutation.isPending ? 'กำลังแก้...' : `แก้ไข & ดาวน์โหลด${ruleCount ? ` (${ruleCount})` : ''}`}
         </button>
-        {preview && !preview.can_sign && (
-          <span className="text-xs text-amber-700 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5" /> {preview.sign_note}
-          </span>
-        )}
+      </div>
+
+      {/* 2. ลายเซ็นท้ายไฟล์ */}
+      <div className="card p-5 space-y-2.5">
+        <h3 className="font-semibold text-gray-800 text-sm">2. ลายเซ็นท้ายไฟล์เมื่อแก้เสร็จ</h3>
+        <SignOption value="keep" current={signMode} onPick={setSignMode}
+          title="คงลายเซ็นเดิมไว้ (แนะนำ)"
+          desc="ไม่แตะบรรทัดลายเซ็น ได้ผลเหมือนการเปิดไฟล์แก้ด้วยมือ — วิธีที่เคยใช้แล้วส่งผ่าน" />
+        <SignOption value="plain" current={signMode} onPick={setSignMode}
+          title="คำนวณ MD5 ใหม่ แบบเดียวกับแฟ้มผู้ป่วยนอก (ทดลอง)"
+          desc="ค่าที่ได้ไม่ตรงกับลายเซ็นที่โปรแกรม สกส. สร้างไว้เดิม ควรลองส่ง 1 ไฟล์ก่อนใช้จริง" />
+        <SignOption value="hmac" current={signMode} onPick={setSignMode} disabled={preview ? !preview.has_key : true}
+          title="เซ็น HMAC ด้วยคีย์ของโรงพยาบาล (ถูกต้องที่สุด)"
+          desc={preview && !preview.has_key ? 'ยังไม่ได้ตั้งค่าคีย์ในระบบ — เลือกไม่ได้' : 'เซ็นใหม่ให้ถูกต้องตามวิธีของ สกส.'} />
       </div>
 
       {/* Preview */}
@@ -197,6 +207,26 @@ export default function CipnDateRevPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function SignOption({ value, current, onPick, title, desc, disabled }: {
+  value: SignMode; current: SignMode; onPick: (v: SignMode) => void
+  title: string; desc: string; disabled?: boolean
+}) {
+  return (
+    <label className={clsx('flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors',
+      disabled ? 'opacity-50 cursor-not-allowed border-gray-200'
+        : current === value ? 'border-rose-300 bg-rose-50/50 cursor-pointer' : 'border-gray-200 hover:bg-gray-50 cursor-pointer')}>
+      <input type="radio" name="signmode" value={value} checked={current === value} disabled={disabled}
+        onChange={() => onPick(value)} className="mt-0.5 w-4 h-4 text-rose-600 focus:ring-rose-400" />
+      <span>
+        <span className="text-sm text-gray-800 font-medium flex items-center gap-1.5">
+          {disabled && <Lock className="w-3.5 h-3.5 text-gray-400" />}{title}
+        </span>
+        <span className="block text-xs text-gray-500">{desc}</span>
+      </span>
+    </label>
   )
 }
 

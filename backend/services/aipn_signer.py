@@ -30,7 +30,14 @@ def _cfg(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
-def is_configured() -> bool:
+# โหมด "plain" = MD5 ธรรมดาแบบแฟ้มผู้ป่วยนอก (ไม่ใช้คีย์)
+# ⚠ ทดลองเท่านั้น: ตรวจกับไฟล์จริงแล้วค่าไม่ตรงกับลายเซ็นที่โปรแกรม สกส. สร้าง
+PLAIN_MODE = "plain"
+
+
+def is_configured(mode: str = "") -> bool:
+    if (mode or _cfg("AIPN_HMAC_MODE", "hmac")).lower() == PLAIN_MODE:
+        return True      # ไม่ต้องใช้คีย์
     return bool(_cfg("AIPN_HMAC_KEY"))
 
 
@@ -75,9 +82,13 @@ def _body(head: bytes) -> bytes:
     return head
 
 
-def compute(head: bytes) -> str:
+def compute(head: bytes, mode_override: str = "") -> str:
     """คำนวณลายเซ็นของเนื้อไฟล์ (ตัวพิมพ์ใหญ่) ตามการตั้งค่า"""
-    if not is_configured():
+    mode = (mode_override or _cfg("AIPN_HMAC_MODE", "hmac")).lower()
+    if mode == PLAIN_MODE:
+        algo = _cfg("AIPN_HMAC_ALGO", "md5").lower()
+        return _HASHES.get(algo, hashlib.md5)(_body(head)).hexdigest().upper()
+    if not is_configured(mode):
         raise ValueError(
             "ยังไม่ได้ตั้งค่าคีย์สำหรับเซ็นไฟล์ผู้ป่วยใน (AIPN/CIPN) — "
             "ไฟล์ผู้ป่วยในเซ็นด้วย HMAC ที่ต้องใช้คีย์ของโรงพยาบาลจากระบบ AIPN ของ สกส. "
@@ -88,7 +99,6 @@ def compute(head: bytes) -> str:
         raise ValueError(f"AIPN_HMAC_ALGO ต้องเป็น md5/sha1/sha256 (ได้ '{algo}')")
     hfunc = _HASHES[algo]
     key, body = _key_bytes(), _body(head)
-    mode = _cfg("AIPN_HMAC_MODE", "hmac").lower()
 
     if mode == "key_prefix":
         return hfunc(key + body).hexdigest().upper()
@@ -97,10 +107,13 @@ def compute(head: bytes) -> str:
     return hmac.new(key, body, hfunc).hexdigest().upper()
 
 
-def sign_endnote(head: bytes) -> str:
-    """สร้างบรรทัด <?EndNote ...?> ใหม่สำหรับไฟล์ที่แก้แล้ว"""
+def sign_endnote(head: bytes, mode_override: str = "") -> str:
+    """
+    สร้างบรรทัด <?EndNote ...?> ใหม่สำหรับไฟล์ที่แก้แล้ว
+    เว้นวรรคก่อน ?> ให้เหมือนไฟล์ที่โปรแกรม สกส. สร้าง
+    """
     attr = _cfg("AIPN_HMAC_ATTR", "HMAC")
-    return f'<?EndNote {attr}="{compute(head)}"?>'
+    return f'<?EndNote {attr}="{compute(head, mode_override)}" ?>'
 
 
 def verify(raw: bytes) -> Optional[bool]:

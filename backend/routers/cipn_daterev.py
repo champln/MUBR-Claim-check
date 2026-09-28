@@ -71,9 +71,11 @@ async def preview(
         raise HTTPException(422, str(e))
     cfg = config_summary()
     result["file"] = name
-    result["can_sign"] = cfg["configured"]
+    result["has_key"] = cfg["configured"]
+    result["can_sign"] = True      # อย่างน้อยโหมด "คงลายเซ็นเดิม" ใช้ได้เสมอ
     result["sign_note"] = "" if cfg["configured"] else (
-        "ยังตั้งค่าคีย์ HMAC ของโรงพยาบาลไม่ครบ — ตรวจและดูผลได้ แต่ยังดาวน์โหลดไฟล์ที่แก้แล้วไม่ได้"
+        "ยังไม่ได้ตั้งค่าคีย์ HMAC ของโรงพยาบาล จึงยังเซ็นลายเซ็นใหม่ไม่ได้ — "
+        "ใช้โหมดคงลายเซ็นเดิมไว้ได้ (เหมือนการแก้ไฟล์ด้วยมือ)"
     )
     return result
 
@@ -82,18 +84,20 @@ async def preview(
 async def apply(
     files: List[UploadFile] = File(...),
     rules: Optional[str] = Form(None),
+    sign_mode: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     name, raw = await _read_cipn_upload(files)
     try:
-        out = apply_daterev(raw, _parse_rules(rules))
+        out = apply_daterev(raw, _parse_rules(rules), sign_mode=sign_mode)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
     headers = {
+        "X-Sign-Mode": sign_mode or "hmac",
         "Content-Disposition": f"attachment; filename={name}",
         "X-Filename": name,
-        "Access-Control-Expose-Headers": "X-Filename",
+        "Access-Control-Expose-Headers": "X-Filename, X-Sign-Mode",
     }
     return StreamingResponse(io.BytesIO(out), media_type="application/xml", headers=headers)
