@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from services.aipn_signer import ENDNOTE_RE, sign_endnote
+from services.aipn_signer import ENDNOTE_RE, compute, sign_endnote
 from services.csop_file_editor import ENCODING, split_endnote
 
 # ส่วนที่เป็นแถวคั่นด้วย | (แก้ได้เหมือนแฟ้ม OPD)
@@ -123,7 +123,13 @@ class CipnFile:
         มีคีย์ของโรงพยาบาล -> HMAC ตามวิธีของ สกส. / ยังไม่มีคีย์ -> MD5 ของเนื้อไฟล์
         """
         head = self.head_text.encode(ENCODING)
-        return head + sign_endnote(head, sign_mode).encode(ENCODING) + self.tail
+        new_sig = compute(head, sign_mode).encode("ascii")
+        if self.endnote:
+            # คงรูปแบบบรรทัดลายเซ็นเดิมของไฟล์ไว้ (บางฉบับเว้นวรรคก่อน ?> บางฉบับไม่เว้น)
+            endnote = re.sub(rb'"[0-9A-Fa-f]+"', b'"' + new_sig + b'"', self.endnote, count=1)
+        else:
+            endnote = sign_endnote(head, sign_mode).encode(ENCODING)
+        return head + endnote + self.tail
 
 
 def is_cipn(raw: bytes) -> bool:

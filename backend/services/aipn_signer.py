@@ -1,8 +1,16 @@
 """
 ลายเซ็นท้ายไฟล์ AIPN / CIPN (ผู้ป่วยใน)
 
-ต่างจากแฟ้ม OPD ที่ใช้ MD5 ตรงๆ: ไฟล์ผู้ป่วยในเซ็นด้วย HMAC ซึ่งต้องมี
-"คีย์ของโรงพยาบาล" จากระบบ AIPN ของ สกส. ระบบจึงเซ็นให้ไม่ได้จนกว่าจะตั้งค่าคีย์
+แม้ attribute จะชื่อ HMAC แต่ของจริง "ไม่ได้ใช้คีย์" — ถอดสูตรได้จากโค้ดของโปรแกรม
+สกส. เอง (SQL4DataAudit_Claim.SQL ใน RCM):
+
+    _value = strextract(_data, [<CIPN>], [</CIPN>], 1, 4)   # เอาเฉพาะ <CIPN>...</CIPN>
+    _value = _value + crlf                                   # ต่อท้ายด้วย CRLF
+    _md5   = md5(_value)                                     # MD5 ธรรมดา
+    <?EndNote HMAC="<_md5>"?>
+
+ต่างจากแฟ้ม OPD ตรงที่ OPD เอา "ทุกไบต์ก่อน <?EndNote" ไปเข้า MD5 ส่วนผู้ป่วยใน
+เอาเฉพาะช่วง <CIPN>...</CIPN> แล้วต่อ CRLF — ยืนยันกับไฟล์จริงของ รพ. แล้ว
 
 ตั้งค่าใน backend/.env (ไฟล์นี้ไม่ขึ้น git):
     AIPN_HMAC_KEY=<คีย์ของโรงพยาบาล>
@@ -36,7 +44,7 @@ PLAIN_MODE = "plain"
 
 
 def is_configured(mode: str = "") -> bool:
-    """เซ็นได้เสมอ — มีคีย์ใช้ HMAC, ไม่มีคีย์ใช้ MD5 ของเนื้อไฟล์"""
+    """เซ็นได้เสมอ — สูตรมาตรฐานไม่ต้องใช้คีย์"""
     return True
 
 
@@ -52,9 +60,10 @@ def config_summary() -> dict:
         "has_key": bool(key),
         "key_length": len(key),
         "algo": _cfg("AIPN_HMAC_ALGO", "md5"),
+        "formula": "MD5(<CIPN>...</CIPN> + CRLF)" if _cfg("AIPN_HMAC_MODE", "cipn").lower() in ("cipn", "cipn_md5") else "custom",
         "key_form": _cfg("AIPN_HMAC_KEY_FORM", "text"),
         "scope": _cfg("AIPN_HMAC_SCOPE", "head"),
-        "mode": _cfg("AIPN_HMAC_MODE", "hmac"),
+        "mode": _cfg("AIPN_HMAC_MODE", "cipn"),
         "attr": _cfg("AIPN_HMAC_ATTR", "HMAC"),
     }
 
@@ -86,12 +95,25 @@ def _body(head: bytes) -> bytes:
     return head
 
 
+CIPN_RE = re.compile(rb"<CIPN>.*</CIPN>", re.S)
+CRLF = b"\r\n"
+
+
+def compute_cipn_md5(head: bytes) -> str:
+    """สูตรจริงของไฟล์ผู้ป่วยใน: MD5 ของ <CIPN>...</CIPN> + CRLF (ไม่ใช้คีย์)"""
+    m = CIPN_RE.search(head)
+    if not m:
+        raise ValueError("ไม่พบ <CIPN>...</CIPN> ในไฟล์ จึงคำนวณลายเซ็นไม่ได้")
+    return hashlib.md5(m.group(0) + CRLF).hexdigest().upper()
+
+
 def compute(head: bytes, mode_override: str = "") -> str:
     """คำนวณลายเซ็นของเนื้อไฟล์ (ตัวพิมพ์ใหญ่) ตามการตั้งค่า"""
-    mode = (mode_override or _cfg("AIPN_HMAC_MODE", "hmac")).lower()
-    # ไม่มีคีย์ของโรงพยาบาล -> เซ็นด้วย MD5 ของเนื้อไฟล์ (แบบเดียวกับแฟ้มผู้ป่วยนอก)
-    # เซ็นใหม่ทุกครั้งที่แก้ไฟล์เสมอ ไม่ปล่อยลายเซ็นเดิมค้างไว้
-    if mode == PLAIN_MODE or not _cfg("AIPN_HMAC_KEY"):
+    mode = (mode_override or _cfg("AIPN_HMAC_MODE", "cipn")).lower()
+    # ค่าเริ่มต้น = สูตรจริงของ สกส. (ไม่ใช้คีย์)
+    if mode in ("cipn", "cipn_md5"):
+        return compute_cipn_md5(head)
+    if mode == PLAIN_MODE:
         algo = _cfg("AIPN_HMAC_ALGO", "md5").lower()
         return _HASHES.get(algo, hashlib.md5)(_body(head)).hexdigest().upper()
     if not is_configured(mode):
@@ -128,10 +150,10 @@ def verify(raw: bytes) -> Optional[bool]:
     None = ยังไม่ได้ตั้งค่าคีย์ หรือไฟล์ไม่มีลายเซ็น
     """
     m = ENDNOTE_RE.search(raw)
-    if not m or not is_configured():
+    if not m:
         return None
     stored = m.group(2).decode("ascii").upper()
     try:
-        return compute(raw[: m.start()]).startswith(stored[: len(stored)])
+        return compute(raw[: m.start()]) == stored
     except ValueError:
         return None

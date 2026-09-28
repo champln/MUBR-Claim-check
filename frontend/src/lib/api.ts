@@ -751,6 +751,7 @@ export interface DateRevPreview {
   rows: DateRevRow[]
   can_sign: boolean
   has_key: boolean
+  signature_ok: boolean | null
   sign_note: string
 }
 

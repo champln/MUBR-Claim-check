@@ -129,7 +129,8 @@ export default function CipnDateRevPage() {
               <Stat label="น่าสงสัย" value={preview.suspect_count} color={preview.suspect_count ? 'text-rose-600' : 'text-gray-400'} />
               <Stat label="จะแก้" value={ruleCount} color="text-emerald-600" />
             </div>
-            <span className="text-xs text-gray-500 flex items-center gap-1.5">
+            <span className={clsx('text-xs flex items-center gap-1.5',
+              preview.signature_ok ? 'text-emerald-600' : 'text-rose-600')}>
               <PenLine className="w-3.5 h-3.5" /> {preview.sign_note}
             </span>
             <label className="text-xs text-gray-600 flex items-center gap-1.5 ml-auto cursor-pointer">

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from models import User
-from services.aipn_signer import config_summary
+from services.aipn_signer import config_summary, verify as verify_signature
 from services.cipn_file_editor import apply_daterev, is_cipn, preview_daterev
 
 router = APIRouter(prefix="/cipn-daterev", tags=["CIPN DateRev Fix"])
@@ -70,14 +70,16 @@ async def preview(
     except ValueError as e:
         raise HTTPException(422, str(e))
     cfg = config_summary()
+    sig_ok = verify_signature(raw)
     result["file"] = name
     result["has_key"] = cfg["has_key"]
     result["can_sign"] = True
+    result["signature_ok"] = sig_ok
     result["sign_note"] = (
-        "เซ็นใหม่ด้วย HMAC + คีย์ของโรงพยาบาล"
-        if cfg["has_key"] else
-        "ยังไม่ได้ตั้งค่าคีย์ของโรงพยาบาล — จะเซ็นใหม่ด้วย MD5 ของเนื้อไฟล์ "
-        "(ค่าที่ได้ไม่ตรงกับลายเซ็นเดิมที่โปรแกรม สกส. สร้าง)"
+        "ลายเซ็นท้ายไฟล์ถูกต้อง — เมื่อแก้เสร็จระบบจะเซ็นใหม่ให้"
+        if sig_ok else
+        "ลายเซ็นท้ายไฟล์ไม่ตรงกับเนื้อไฟล์ (ไฟล์นี้ถูกแก้มาโดยไม่ได้เซ็นใหม่ — "
+        "ถ้าส่งแบบนี้จะถูกตีกลับรหัส 22) กดแก้ไข & ดาวน์โหลด ระบบจะเซ็นใหม่ให้ถูกต้อง"
     )
     return result
 
