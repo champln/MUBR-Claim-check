@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routers import auth, claims, prescreen, reports
 from routers import claim_files, cpap_fix, live_prescreen, covid19_fix, rama_sh50_fix, tmt_fix
-from routers import stdcode_fix, opd_fee_fix, svdate_fix
+from routers import stdcode_fix, opd_fee_fix, svdate_fix, cipn_daterev
 from auth import seed_default_admin
 
 # Create all tables on startup
@@ -83,6 +83,7 @@ _ROUTERS = [
     stdcode_fix.router,
     opd_fee_fix.router,
     svdate_fix.router,
+    cipn_daterev.router,
 ]
 
 # ลงทะเบียน 2 ชุด:

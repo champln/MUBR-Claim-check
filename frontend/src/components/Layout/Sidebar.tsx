@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt, CalendarClock
+  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt, CalendarClock, CalendarCheck
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -18,6 +18,7 @@ const navItems = [
   { to: '/stdcode-fix', icon: Stethoscope, label: 'แก้รหัสหัตถการ (S19/S41)' },
   { to: '/opd-fee-fix', icon: Receipt, label: 'แก้ยอดค่าบริการ (A04/T33/45)' },
   { to: '/svdate-fix', icon: CalendarClock, label: 'แก้วันที่ให้บริการ (T42)' },
+  { to: '/cipn-daterev', icon: CalendarCheck, label: 'แก้ DateRev ผู้ป่วยใน' },
   { to: '/reports', icon: BarChart3, label: 'รายงาน' },
   { to: '/account', icon: UserCog, label: 'บัญชีผู้ใช้' },
 ]

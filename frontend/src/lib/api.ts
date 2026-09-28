@@ -730,6 +730,54 @@ export const applyOpdFeeFix = async (
   }
 }
 
+// ─── แก้วันที่ปรับปรุงล่าสุด (DateRev) ในไฟล์ผู้ป่วยใน CIPN/AIPN ────────────────
+
+export interface DateRevRow {
+  seq: string
+  lccode: string
+  desc: string
+  svdate: string
+  current_daterev: string
+  new_daterev: string
+  suspect: boolean
+}
+
+export interface DateRevPreview {
+  file: string
+  export_date: string
+  total_rows: number
+  suspect_count: number
+  change_count: number
+  rows: DateRevRow[]
+  can_sign: boolean
+  sign_note: string
+}
+
+function buildDateRevForm(files: File[], rules: Record<string, string>): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  const clean = Object.fromEntries(
+    Object.entries(rules).filter(([k, v]) => k.trim() && String(v).trim()),
+  )
+  if (Object.keys(clean).length) fd.append('rules', JSON.stringify(clean))
+  return fd
+}
+
+export const previewDateRev = (files: File[], rules: Record<string, string> = {}) =>
+  api.post<DateRevPreview>('/cipn-daterev/preview', buildDateRevForm(files, rules)).then(r => r.data)
+
+export const applyDateRev = async (files: File[], rules: Record<string, string>) => {
+  const res = await api.post('/cipn-daterev/apply', buildDateRevForm(files, rules), { responseType: 'blob' })
+  const filename = res.headers['x-filename'] || 'CIPN.xml'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { filename }
+}
+
 // ─── แก้ไฟล์ระดับฟิลด์ในหน้า "ตรวจไฟล์ส่งเบิก" + เซ็น MD5 ใหม่ ──────────────────
 
 export interface RawSection {

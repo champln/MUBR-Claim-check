@@ -70,12 +70,17 @@ class CipnFile:
         self.head_text = self.eol.join(lines)
 
     # ── แถวคั่นด้วย | ─────────────────────────────────────────────────────────
+    @staticmethod
+    def _is_open(line: str, tag: str) -> bool:
+        """<BillItems> หรือ <BillItems Reccount="111"> ก็นับว่าเปิด section"""
+        return bool(re.fullmatch(rf"<{tag}(\s[^>]*)?>", line.strip()))
+
     def section_rows(self, tag: str) -> List[List[str]]:
         rows: List[List[str]] = []
         inside = False
         for line in self.head_text.split(self.eol):
             s = line.strip()
-            if s == f"<{tag}>":
+            if self._is_open(s, tag):
                 inside = True
                 continue
             if s == f"</{tag}>":
@@ -91,7 +96,7 @@ class CipnFile:
         changed = 0
         for i, line in enumerate(lines):
             s = line.strip()
-            if s == f"<{tag}>":
+            if self._is_open(s, tag):
                 inside = True
                 continue
             if s == f"</{tag}>":
@@ -243,16 +248,18 @@ FIELD_LABELS: Dict[str, List[str]] = {
         "QTY|จำนวน",
         "UnitPrice|ราคาต่อหน่วย",
         "ChargeAmt|รวมเป็นเงิน",
-        "Copay|ส่วนที่ผู้ป่วยร่วมจ่าย",
+        "Discount|ส่วนลด",
+        "Copay|ผู้ป่วยร่วมจ่าย",
+        "Field11|ฟิลด์ 11",
+        "PayPlan|สิทธิการรักษา",
+        "StdMuad|หมวดมาตรฐาน",
+        "StdCode|รหัสมาตรฐาน",
+        "CodeSet|ชุดรหัสยา (TMT/TMLT)",
+        "ProductCode|รหัสยา/ผลิตภัณฑ์",
+        "PriceType|ประเภทราคา (T=รายการ D=ยา/วัสดุ)",
+        "DateRev|วันที่ปรับปรุงล่าสุด",
+        "ClaimPrice|ราคาที่ขอเบิกต่อหน่วย",
         "ClaimAmt|จำนวนเงินที่ขอเบิก",
-        "Reimburse|เบิกได้",
-        "PayType|ประเภทการชำระ",
-        "Note|หมายเหตุ",
-        "TMT|รหัสยา TMT",
-        "TMTNo|เลขที่ TMT",
-        "Flag|สถานะรายการ",
-        "Ref1|อ้างอิง 1",
-        "Ref2|อ้างอิง 2",
     ],
 }
 
@@ -260,3 +267,85 @@ FIELD_LABELS: Dict[str, List[str]] = {
 def labels_for(section: str, width: int) -> List[str]:
     known = FIELD_LABELS.get(section, [])
     return [known[i] if i < len(known) else f"|ฟิลด์ {i + 1}" for i in range(width)]
+
+
+# ─── แก้วันที่ปรับปรุงล่าสุด (DateRev) ในรายการค่ารักษา ────────────────────────
+# อาการที่พบ: รายการที่ยังไม่เคยตั้งวันที่ปรับปรุงใน HOSxP จะถูก export ออกมาเป็น
+# "วันที่ส่งออกไฟล์" แทนวันที่จริง (เช่น ควรเป็น 2005-02-10 แต่ได้ 2026-09-24)
+BILLITEMS_SEQ_IDX = 0
+BILLITEMS_LCCODE_IDX = 3
+BILLITEMS_DESC_IDX = 4
+BILLITEMS_DATEREV_IDX = 17
+
+
+def export_date(raw: bytes) -> str:
+    """วันที่ส่งออกไฟล์ จาก <effectiveTime> (เอาเฉพาะส่วนวัน)"""
+    cf = CipnFile.parse(raw)
+    for t in cf.leaf_tags():
+        if t["tag"] == "effectiveTime":
+            return t["value"][:10]
+    return ""
+
+
+def preview_daterev(raw: bytes, rules: Optional[Dict[str, str]] = None) -> dict:
+    """
+    ดูรายการค่ารักษาและ DateRev ของแต่ละแถว
+    rules: {รหัสรายการของ รพ. (LCCode): วันที่ใหม่ YYYY-MM-DD}
+    ทำเครื่องหมาย suspect = DateRev ว่าง หรือเท่ากับวันที่ส่งออกไฟล์
+    """
+    rules = {str(k).strip(): str(v).strip() for k, v in (rules or {}).items() if str(k).strip()}
+    cf = CipnFile.parse(raw)
+    exp = export_date(raw)
+    rows: List[dict] = []
+    for r in cf.section_rows("BillItems"):
+        if len(r) <= BILLITEMS_DATEREV_IDX:
+            continue
+        code = r[BILLITEMS_LCCODE_IDX].strip()
+        cur = r[BILLITEMS_DATEREV_IDX].strip()
+        new = rules.get(code, "")
+        rows.append({
+            "seq": r[BILLITEMS_SEQ_IDX].strip(),
+            "lccode": code,
+            "desc": r[BILLITEMS_DESC_IDX].strip(),
+            "svdate": r[1].strip(),
+            "current_daterev": cur,
+            "new_daterev": new if new and new != cur else "",
+            "suspect": (not cur) or (bool(exp) and cur == exp),
+        })
+    return {
+        "export_date": exp,
+        "total_rows": len(rows),
+        "suspect_count": sum(1 for x in rows if x["suspect"]),
+        "change_count": sum(1 for x in rows if x["new_daterev"]),
+        "rows": rows,
+    }
+
+
+def apply_daterev(raw: bytes, rules: Dict[str, str]) -> bytes:
+    """เปลี่ยน DateRev ตามรหัสรายการ แล้วเซ็นลายเซ็นท้ายไฟล์ใหม่"""
+    rules = {str(k).strip(): str(v).strip() for k, v in (rules or {}).items()
+             if str(k).strip() and str(v).strip()}
+    if not rules:
+        raise ValueError("ยังไม่ได้ระบุวันที่ใหม่ของรายการใด")
+    for code, value in rules.items():
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError(f"วันที่ของรหัส {code} ต้องอยู่ในรูปแบบ YYYY-MM-DD (ได้ '{value}')")
+
+    cf = CipnFile.parse(raw)
+    changed = {"n": 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        if len(cols) <= BILLITEMS_DATEREV_IDX:
+            return None
+        want = rules.get(cols[BILLITEMS_LCCODE_IDX].strip())
+        if not want or cols[BILLITEMS_DATEREV_IDX].strip() == want:
+            return None
+        new = list(cols)
+        new[BILLITEMS_DATEREV_IDX] = want
+        changed["n"] += 1
+        return new
+
+    cf.edit_section("BillItems", fix)
+    if not changed["n"]:
+        raise ValueError("ไม่พบรายการที่ต้องแก้ — DateRev ตรงกับที่ระบุอยู่แล้ว")
+    return cf.to_bytes()
