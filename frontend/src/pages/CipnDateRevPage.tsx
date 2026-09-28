@@ -3,10 +3,10 @@ import { useDropzone } from 'react-dropzone'
 import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  CalendarCheck, Upload, FileText, X, Search, Download, AlertTriangle, Lock, Wand2,
+  CalendarCheck, Upload, FileText, X, Search, Download, AlertTriangle, Wand2, PenLine,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { previewDateRev, applyDateRev, type DateRevPreview, type SignMode } from '../lib/api'
+import { previewDateRev, applyDateRev, type DateRevPreview } from '../lib/api'
 
 export default function CipnDateRevPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -14,7 +14,6 @@ export default function CipnDateRevPage() {
   const [rules, setRules] = useState<Record<string, string>>({})   // รหัสรายการ -> วันที่ใหม่
   const [onlySuspect, setOnlySuspect] = useState(true)
   const [bulkDate, setBulkDate] = useState('')
-  const [signMode, setSignMode] = useState<SignMode>('keep')
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(accepted.slice(0, 1))
@@ -45,7 +44,7 @@ export default function CipnDateRevPage() {
   })
 
   const applyMutation = useMutation({
-    mutationFn: () => applyDateRev(files, rules, signMode),
+    mutationFn: () => applyDateRev(files, rules),
     onSuccess: (res) => toast.success(`แก้ DateRev แล้ว — ดาวน์โหลด ${res.filename}`),
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
@@ -73,7 +72,7 @@ export default function CipnDateRevPage() {
           <CalendarCheck className="w-5 h-5 text-rose-600" /> แก้วันที่ปรับปรุงล่าสุด (DateRev) — ผู้ป่วยใน
         </h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          แก้ <code className="text-rose-700">DateRev</code> (ฟิลด์ที่ 18 ของ BillItems) ในไฟล์ CIPN/AIPN แล้วเซ็นลายเซ็นท้ายไฟล์ใหม่
+          แก้ <code className="text-rose-700">DateRev</code> (ฟิลด์ที่ 18 ของ BillItems) ในไฟล์ CIPN/AIPN — เซ็นลายเซ็นท้ายไฟล์ใหม่ให้ทุกครั้งที่แก้
         </p>
         <div className="mt-3 text-xs text-gray-600 bg-rose-50 border border-rose-100 rounded-lg p-3 space-y-1">
           <div>
@@ -119,20 +118,6 @@ export default function CipnDateRevPage() {
         </button>
       </div>
 
-      {/* 2. ลายเซ็นท้ายไฟล์ */}
-      <div className="card p-5 space-y-2.5">
-        <h3 className="font-semibold text-gray-800 text-sm">2. ลายเซ็นท้ายไฟล์เมื่อแก้เสร็จ</h3>
-        <SignOption value="keep" current={signMode} onPick={setSignMode}
-          title="คงลายเซ็นเดิมไว้ (แนะนำ)"
-          desc="ไม่แตะบรรทัดลายเซ็น ได้ผลเหมือนการเปิดไฟล์แก้ด้วยมือ — วิธีที่เคยใช้แล้วส่งผ่าน" />
-        <SignOption value="plain" current={signMode} onPick={setSignMode}
-          title="คำนวณ MD5 ใหม่ แบบเดียวกับแฟ้มผู้ป่วยนอก (ทดลอง)"
-          desc="ค่าที่ได้ไม่ตรงกับลายเซ็นที่โปรแกรม สกส. สร้างไว้เดิม ควรลองส่ง 1 ไฟล์ก่อนใช้จริง" />
-        <SignOption value="hmac" current={signMode} onPick={setSignMode} disabled={preview ? !preview.has_key : true}
-          title="เซ็น HMAC ด้วยคีย์ของโรงพยาบาล (ถูกต้องที่สุด)"
-          desc={preview && !preview.has_key ? 'ยังไม่ได้ตั้งค่าคีย์ในระบบ — เลือกไม่ได้' : 'เซ็นใหม่ให้ถูกต้องตามวิธีของ สกส.'} />
-      </div>
-
       {/* Preview */}
       {preview && (
         <div className="card overflow-hidden">
@@ -144,6 +129,9 @@ export default function CipnDateRevPage() {
               <Stat label="น่าสงสัย" value={preview.suspect_count} color={preview.suspect_count ? 'text-rose-600' : 'text-gray-400'} />
               <Stat label="จะแก้" value={ruleCount} color="text-emerald-600" />
             </div>
+            <span className="text-xs text-gray-500 flex items-center gap-1.5">
+              <PenLine className="w-3.5 h-3.5" /> {preview.sign_note}
+            </span>
             <label className="text-xs text-gray-600 flex items-center gap-1.5 ml-auto cursor-pointer">
               <input type="checkbox" checked={onlySuspect} onChange={e => setOnlySuspect(e.target.checked)}
                 className="w-3.5 h-3.5 rounded border-gray-300 text-rose-600" />
@@ -207,26 +195,6 @@ export default function CipnDateRevPage() {
         </div>
       )}
     </div>
-  )
-}
-
-function SignOption({ value, current, onPick, title, desc, disabled }: {
-  value: SignMode; current: SignMode; onPick: (v: SignMode) => void
-  title: string; desc: string; disabled?: boolean
-}) {
-  return (
-    <label className={clsx('flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors',
-      disabled ? 'opacity-50 cursor-not-allowed border-gray-200'
-        : current === value ? 'border-rose-300 bg-rose-50/50 cursor-pointer' : 'border-gray-200 hover:bg-gray-50 cursor-pointer')}>
-      <input type="radio" name="signmode" value={value} checked={current === value} disabled={disabled}
-        onChange={() => onPick(value)} className="mt-0.5 w-4 h-4 text-rose-600 focus:ring-rose-400" />
-      <span>
-        <span className="text-sm text-gray-800 font-medium flex items-center gap-1.5">
-          {disabled && <Lock className="w-3.5 h-3.5 text-gray-400" />}{title}
-        </span>
-        <span className="block text-xs text-gray-500">{desc}</span>
-      </span>
-    </label>
   )
 }
 

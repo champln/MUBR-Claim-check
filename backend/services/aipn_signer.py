@@ -36,8 +36,11 @@ PLAIN_MODE = "plain"
 
 
 def is_configured(mode: str = "") -> bool:
-    if (mode or _cfg("AIPN_HMAC_MODE", "hmac")).lower() == PLAIN_MODE:
-        return True      # ไม่ต้องใช้คีย์
+    """เซ็นได้เสมอ — มีคีย์ใช้ HMAC, ไม่มีคีย์ใช้ MD5 ของเนื้อไฟล์"""
+    return True
+
+
+def has_key() -> bool:
     return bool(_cfg("AIPN_HMAC_KEY"))
 
 
@@ -45,7 +48,8 @@ def config_summary() -> dict:
     """สรุปการตั้งค่า (ไม่เปิดเผยคีย์)"""
     key = _cfg("AIPN_HMAC_KEY")
     return {
-        "configured": bool(key),
+        "configured": True,
+        "has_key": bool(key),
         "key_length": len(key),
         "algo": _cfg("AIPN_HMAC_ALGO", "md5"),
         "key_form": _cfg("AIPN_HMAC_KEY_FORM", "text"),
@@ -85,7 +89,9 @@ def _body(head: bytes) -> bytes:
 def compute(head: bytes, mode_override: str = "") -> str:
     """คำนวณลายเซ็นของเนื้อไฟล์ (ตัวพิมพ์ใหญ่) ตามการตั้งค่า"""
     mode = (mode_override or _cfg("AIPN_HMAC_MODE", "hmac")).lower()
-    if mode == PLAIN_MODE:
+    # ไม่มีคีย์ของโรงพยาบาล -> เซ็นด้วย MD5 ของเนื้อไฟล์ (แบบเดียวกับแฟ้มผู้ป่วยนอก)
+    # เซ็นใหม่ทุกครั้งที่แก้ไฟล์เสมอ ไม่ปล่อยลายเซ็นเดิมค้างไว้
+    if mode == PLAIN_MODE or not _cfg("AIPN_HMAC_KEY"):
         algo = _cfg("AIPN_HMAC_ALGO", "md5").lower()
         return _HASHES.get(algo, hashlib.md5)(_body(head)).hexdigest().upper()
     if not is_configured(mode):

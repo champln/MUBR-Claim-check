@@ -754,7 +754,6 @@ export interface DateRevPreview {
   sign_note: string
 }
 
-export type SignMode = 'keep' | 'plain' | 'hmac'
 
 function buildDateRevForm(files: File[], rules: Record<string, string>): FormData {
   const fd = new FormData()
@@ -769,12 +768,8 @@ function buildDateRevForm(files: File[], rules: Record<string, string>): FormDat
 export const previewDateRev = (files: File[], rules: Record<string, string> = {}) =>
   api.post<DateRevPreview>('/cipn-daterev/preview', buildDateRevForm(files, rules)).then(r => r.data)
 
-export const applyDateRev = async (
-  files: File[], rules: Record<string, string>, signMode: SignMode = 'keep',
-) => {
-  const fd = buildDateRevForm(files, rules)
-  fd.append('sign_mode', signMode)
-  const res = await api.post('/cipn-daterev/apply', fd, { responseType: 'blob' })
+export const applyDateRev = async (files: File[], rules: Record<string, string>) => {
+  const res = await api.post('/cipn-daterev/apply', buildDateRevForm(files, rules), { responseType: 'blob' })
   const filename = res.headers['x-filename'] || 'CIPN.xml'
   const url = URL.createObjectURL(res.data)
   const a = document.createElement('a')

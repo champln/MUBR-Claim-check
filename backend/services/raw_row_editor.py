@@ -164,18 +164,12 @@ def editability(raw: bytes) -> tuple:
     ok = verify_checksum(raw)
     if ok is None:
         if is_cipn(raw):
-            if aipn_config()["configured"]:
-                v = aipn_verify(raw)
-                if v is False:
-                    return False, (
-                        "ตั้งค่าคีย์ HMAC ไว้แล้ว แต่คำนวณลายเซ็นของไฟล์นี้ไม่ตรงกับที่อยู่ในไฟล์ — "
-                        "สูตรหรือคีย์ยังไม่ถูกต้อง (ตรวจด้วย tools/aipn_find_hmac.py) ระบบจะไม่เซ็นทับให้"
-                    )
-                return True, ""
-            return False, (
-                "ไฟล์ผู้ป่วยใน (AIPN/CIPN) เซ็นด้วย HMAC ที่ต้องใช้คีย์ของโรงพยาบาล — "
-                "ยังไม่ได้ตั้งค่า AIPN_HMAC_KEY จึงแก้แล้วเซ็นกลับไม่ได้ (ดูได้อย่างเดียว)"
-            )
+            if aipn_config()["has_key"] and aipn_verify(raw) is False:
+                return False, (
+                    "ตั้งค่าคีย์ HMAC ไว้แล้ว แต่คำนวณลายเซ็นของไฟล์นี้ไม่ตรงกับที่อยู่ในไฟล์ — "
+                    "สูตรหรือคีย์ยังไม่ถูกต้อง (ตรวจด้วย tools/aipn_find_hmac.py) ระบบจะไม่เซ็นทับให้"
+                )
+            return True, ""
         return False, "ไฟล์นี้ไม่ได้เซ็นด้วย MD5 จึงเซ็นใหม่ไม่ได้"
     if ok is False:
         return False, "Checksum เดิมของไฟล์ไม่ถูกต้อง — ตรวจไฟล์ต้นทางก่อน ระบบจะไม่แก้ทับให้"

@@ -119,14 +119,10 @@ class CipnFile:
     # ── serialize ────────────────────────────────────────────────────────────
     def to_bytes(self, sign_mode: str = "") -> bytes:
         """
-        ประกอบไฟล์กลับ — เลือกวิธีจัดการลายเซ็นท้ายไฟล์ได้ 3 แบบ
-          keep  : คงลายเซ็นเดิมไว้ ไม่แตะ (ตรงกับการแก้ไฟล์ด้วยมือ)
-          plain : คำนวณ MD5 ใหม่แบบเดียวกับแฟ้มผู้ป่วยนอก (ไม่ใช้คีย์)
-          hmac  : เซ็นด้วย HMAC + คีย์ของโรงพยาบาล (ต้องตั้งค่าคีย์ก่อน)
+        ประกอบไฟล์กลับ แล้ว "เซ็นลายเซ็นท้ายไฟล์ใหม่เสมอ"
+        มีคีย์ของโรงพยาบาล -> HMAC ตามวิธีของ สกส. / ยังไม่มีคีย์ -> MD5 ของเนื้อไฟล์
         """
         head = self.head_text.encode(ENCODING)
-        if (sign_mode or "").lower() == "keep":
-            return head + self.endnote + self.tail
         return head + sign_endnote(head, sign_mode).encode(ENCODING) + self.tail
 
 

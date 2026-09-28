@@ -71,11 +71,13 @@ async def preview(
         raise HTTPException(422, str(e))
     cfg = config_summary()
     result["file"] = name
-    result["has_key"] = cfg["configured"]
-    result["can_sign"] = True      # อย่างน้อยโหมด "คงลายเซ็นเดิม" ใช้ได้เสมอ
-    result["sign_note"] = "" if cfg["configured"] else (
-        "ยังไม่ได้ตั้งค่าคีย์ HMAC ของโรงพยาบาล จึงยังเซ็นลายเซ็นใหม่ไม่ได้ — "
-        "ใช้โหมดคงลายเซ็นเดิมไว้ได้ (เหมือนการแก้ไฟล์ด้วยมือ)"
+    result["has_key"] = cfg["has_key"]
+    result["can_sign"] = True
+    result["sign_note"] = (
+        "เซ็นใหม่ด้วย HMAC + คีย์ของโรงพยาบาล"
+        if cfg["has_key"] else
+        "ยังไม่ได้ตั้งค่าคีย์ของโรงพยาบาล — จะเซ็นใหม่ด้วย MD5 ของเนื้อไฟล์ "
+        "(ค่าที่ได้ไม่ตรงกับลายเซ็นเดิมที่โปรแกรม สกส. สร้าง)"
     )
     return result
 
