@@ -9,6 +9,9 @@
 """
 from typing import Dict, List, Optional
 
+from services.aipn_signer import config_summary as aipn_config
+from services.aipn_signer import verify as aipn_verify
+from services.cipn_file_editor import apply_cipn_edits, is_cipn, read_cipn
 from services.csop_file_editor import CsopFile, split_endnote, verify_checksum
 
 # section ที่รองรับ เรียงตามลำดับที่อยากให้แสดง
@@ -160,7 +163,20 @@ def editability(raw: bytes) -> tuple:
         return False, "ไฟล์นี้ไม่มีลายเซ็นท้ายไฟล์ (<?EndNote) จึงไม่รองรับการแก้"
     ok = verify_checksum(raw)
     if ok is None:
-        return False, "ไฟล์นี้ไม่ได้เซ็นด้วย MD5 (เช่น AIPN ใช้ HMAC ที่ไม่มีกุญแจ) จึงเซ็นใหม่ไม่ได้"
+        if is_cipn(raw):
+            if aipn_config()["configured"]:
+                v = aipn_verify(raw)
+                if v is False:
+                    return False, (
+                        "ตั้งค่าคีย์ HMAC ไว้แล้ว แต่คำนวณลายเซ็นของไฟล์นี้ไม่ตรงกับที่อยู่ในไฟล์ — "
+                        "สูตรหรือคีย์ยังไม่ถูกต้อง (ตรวจด้วย tools/aipn_find_hmac.py) ระบบจะไม่เซ็นทับให้"
+                    )
+                return True, ""
+            return False, (
+                "ไฟล์ผู้ป่วยใน (AIPN/CIPN) เซ็นด้วย HMAC ที่ต้องใช้คีย์ของโรงพยาบาล — "
+                "ยังไม่ได้ตั้งค่า AIPN_HMAC_KEY จึงแก้แล้วเซ็นกลับไม่ได้ (ดูได้อย่างเดียว)"
+            )
+        return False, "ไฟล์นี้ไม่ได้เซ็นด้วย MD5 จึงเซ็นใหม่ไม่ได้"
     if ok is False:
         return False, "Checksum เดิมของไฟล์ไม่ถูกต้อง — ตรวจไฟล์ต้นทางก่อน ระบบจะไม่แก้ทับให้"
     return True, ""
@@ -181,8 +197,20 @@ def read_sections(files: Dict[str, bytes]) -> List[dict]:
             "editable": editable,
             "checksum_ok": verify_checksum(raw),
             "reason": reason,
+            "kind": "CHI",
             "sections": [],
         }
+        if is_cipn(raw):
+            # อ่าน/ดูได้เสมอ ส่วนจะ "แก้แล้วเซ็นกลับ" ได้ไหม ขึ้นกับว่าตั้งค่าคีย์ไว้หรือยัง
+            entry["kind"] = "CIPN"
+            try:
+                entry["sections"] = read_cipn(raw)["sections"]
+            except Exception as e:
+                entry["editable"] = False
+                entry["reason"] = f"อ่านไฟล์ไม่สำเร็จ: {e}"
+            out.append(entry)
+            continue
+
         if editable:
             try:
                 cf = CsopFile.parse(raw)
@@ -200,6 +228,7 @@ def read_sections(files: Dict[str, bytes]) -> List[dict]:
                     "section": tag,
                     "labels": _labels_for(tag, width),
                     "rows": [r + [""] * (width - len(r)) for r in rows],
+                    "readonly_fields": [],
                 })
         out.append(entry)
     return out
@@ -218,8 +247,13 @@ def apply_edits(files: Dict[str, bytes], edits: List[dict]) -> Dict[str, bytes]:
     for fname, file_edits in by_file.items():
         if fname not in files:
             raise ValueError(f"ไม่พบไฟล์ '{fname}' ในชุดที่บันทึกไว้")
-        if not is_editable(files[fname]):
-            raise ValueError(f"ไฟล์ '{fname}' แก้ไม่ได้ (ไม่ได้เซ็นด้วย MD5)")
+        ok, reason = editability(files[fname])
+        if not ok:
+            raise ValueError(f"ไฟล์ '{fname}' แก้ไม่ได้ — {reason}")
+
+        if is_cipn(files[fname]):
+            out[fname] = apply_cipn_edits(files[fname], file_edits)
+            continue
 
         cf = CsopFile.parse(files[fname])
         by_section: Dict[str, List[dict]] = {}

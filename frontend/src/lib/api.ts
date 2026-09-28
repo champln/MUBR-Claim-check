@@ -736,10 +736,12 @@ export interface RawSection {
   section: string
   labels: string[]
   rows: string[][]
+  readonly_fields?: number[]
 }
 
 export interface RawFile {
   file: string
+  kind?: 'CHI' | 'CIPN'
   editable: boolean
   checksum_ok: boolean | null
   reason: string

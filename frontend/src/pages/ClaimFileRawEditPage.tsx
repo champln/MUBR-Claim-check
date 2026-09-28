@@ -16,6 +16,14 @@ type Draft = Record<string, string>   // key = "file|section|row|field"
 const key = (f: string, s: string, r: number, c: number) => `${f}|${s}|${r}|${c}`
 
 // ความกว้างคอลัมน์ตามความยาวข้อมูลจริง (px) — ชื่อรายการยาวก็กว้างขึ้น แต่ไม่เกินเพดาน
+const SECTION_TH: Record<string, string> = {
+  '#tags': 'ข้อมูลหัวไฟล์ (แท็ก)',
+  IPADT: 'IPADT — การรับไว้/จำหน่าย',
+  IPDx: 'IPDx — การวินิจฉัย',
+  IPOp: 'IPOp — หัตถการ',
+  BillItems: 'BillItems — รายการค่ารักษา',
+}
+
 function splitLabel(label: string): { spec: string; th: string } {
   const [spec, th] = label.includes('|') ? label.split('|') : ['', label]
   return { spec, th: th || spec }
@@ -215,6 +223,7 @@ export default function ClaimFileRawEditPage() {
                 ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                 : <Lock className="w-3.5 h-3.5 text-gray-400" />}
               {f.file}
+              {f.kind === 'CIPN' && <span className="text-[10px] bg-violet-100 text-violet-700 rounded px-1.5">ผู้ป่วยใน</span>}
               {n > 0 && <span className="text-[10px] bg-amber-100 text-amber-700 rounded-full px-1.5">{n}</span>}
             </button>
           )
@@ -239,7 +248,7 @@ export default function ClaimFileRawEditPage() {
                   <button key={s.section} onClick={() => { setOpenSection(s.section); setActive(null) }}
                     className={clsx('px-3 py-1 rounded-full text-xs border transition-colors',
                       s.section === sec.section ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 hover:bg-gray-50')}>
-                    &lt;{s.section}&gt; <span className="opacity-70">{s.rows.length} แถว</span>
+                    {SECTION_TH[s.section] || `<${s.section}>`} <span className="opacity-70">{s.rows.length} แถว</span>
                     {n > 0 && <span className="ml-1 bg-amber-300 text-amber-900 rounded-full px-1.5">{n}</span>}
                   </button>
                 )
@@ -301,6 +310,7 @@ export default function ClaimFileRawEditPage() {
                       const k = key(file.file, sec.section, r, c)
                       const edited = draft[k] !== undefined
                       const value = edited ? draft[k] : cell
+                      const locked = !file.editable || (sec.readonly_fields || []).includes(c)
                       return (
                         <td key={c}
                           className={clsx('border-b border-r border-gray-200 p-0 relative',
@@ -309,7 +319,7 @@ export default function ClaimFileRawEditPage() {
                           <input
                             data-r={r} data-c={c}
                             value={value}
-                            readOnly={!file.editable}
+                            readOnly={locked}
                             title={edited ? `ค่าเดิม: ${cell || '(ว่าง)'}` : value}
                             onFocus={() => setActive({ r, c })}
                             onBlur={() => setActive(null)}
@@ -319,7 +329,7 @@ export default function ClaimFileRawEditPage() {
                               'w-full h-10 px-2.5 bg-transparent outline-none font-mono text-[15px] text-gray-900',
                               'focus:bg-white focus:ring-2 focus:ring-inset focus:ring-indigo-500 focus:relative focus:z-[5]',
                               edited && 'font-semibold text-amber-900',
-                              !file.editable && 'text-gray-400 cursor-not-allowed',
+                              locked && 'text-gray-500 bg-gray-50 cursor-not-allowed',
                             )}
                           />
                         </td>
