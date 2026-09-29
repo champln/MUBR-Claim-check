@@ -14,6 +14,7 @@ export default function CipnDateRevPage() {
   const [rules, setRules] = useState<Record<string, string>>({})   // รหัสรายการ -> วันที่ใหม่
   const [onlySuspect, setOnlySuspect] = useState(true)
   const [bulkDate, setBulkDate] = useState('')
+  const [search, setSearch] = useState('')
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(accepted.slice(0, 1))
@@ -53,8 +54,16 @@ export default function CipnDateRevPage() {
     setRules(prev => ({ ...prev, [code]: value }))
   }
 
+  const q = search.trim().toLowerCase()
   const rows = preview
-    ? preview.rows.filter(r => !onlySuspect || r.suspect || rules[r.lccode])
+    ? preview.rows
+        .filter(r => !onlySuspect || r.suspect || rules[r.lccode])
+        .filter(r => !q
+          || r.lccode.toLowerCase().includes(q)
+          || r.desc.toLowerCase().includes(q)
+          || r.current_daterev.includes(q)
+          || r.svdate.includes(q)
+          || r.seq === q)
     : []
 
   const applyBulk = () => {
@@ -117,7 +126,7 @@ export default function CipnDateRevPage() {
           <Download className="w-4 h-4" />
           {applyMutation.isPending ? 'กำลังแก้...'
             : ruleCount > 0 ? `แก้ไข & ดาวน์โหลด (${ruleCount})`
-            : preview?.signature_ok === false ? 'ซ่อมลายเซ็น & ดาวน์โหลด'
+            : preview?.signature_ok === false ? 'หาค่า HMAC & ดาวน์โหลด'
             : 'แก้ไข & ดาวน์โหลด'}
         </button>
       </div>
@@ -137,7 +146,19 @@ export default function CipnDateRevPage() {
               preview.signature_ok ? 'text-emerald-600' : 'text-rose-600')}>
               <PenLine className="w-3.5 h-3.5" /> {preview.sign_note}
             </span>
-            <label className="text-xs text-gray-600 flex items-center gap-1.5 ml-auto cursor-pointer">
+            <div className="relative ml-auto">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหารหัส / ชื่อรายการ / วันที่"
+                className="border border-gray-300 rounded-lg pl-8 pr-7 py-1.5 text-sm w-64 focus:ring-2 focus:ring-rose-300 outline-none" />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <label className="text-xs text-gray-600 flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={onlySuspect} onChange={e => setOnlySuspect(e.target.checked)}
                 className="w-3.5 h-3.5 rounded border-gray-300 text-rose-600" />
               แสดงเฉพาะที่น่าสงสัย
@@ -188,14 +209,17 @@ export default function CipnDateRevPage() {
                 ))}
                 {rows.length === 0 && (
                   <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                    {onlySuspect ? 'ไม่มีรายการที่น่าสงสัย' : 'ไม่มีรายการ'}
+                    {q ? `ไม่พบรายการที่ตรงกับ "${search.trim()}"` : onlySuspect ? 'ไม่มีรายการที่น่าสงสัย' : 'ไม่มีรายการ'}
                   </td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <div className="px-4 py-2 text-[11px] text-gray-500 border-t">
-            แก้เป็นรายรหัส — ถ้าในไฟล์มีรายการรหัสเดียวกันหลายแถว จะถูกแก้ให้เหมือนกันทุกแถว
+            แสดง {rows.length} จาก {preview.total_rows} รายการ
+            {q && <> · ค้นหา "<b>{search.trim()}</b>"</>}
+            {onlySuspect && <> · กรองเฉพาะที่น่าสงสัย</>}
+            {' · '}แก้เป็นรายรหัส — ถ้าในไฟล์มีรายการรหัสเดียวกันหลายแถว จะถูกแก้ให้เหมือนกันทุกแถว
           </div>
         </div>
       )}
