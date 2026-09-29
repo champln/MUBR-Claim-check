@@ -4,12 +4,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, AlertCircle, AlertTriangle, CheckCircle2,
-  Download, Search, Pencil, Save, X, ChevronDown, ChevronUp, Info, Table2
+  Download, Search, Pencil, Save, X, ChevronDown, ChevronUp, Info, Table2,
+  ShieldAlert, ChevronRight, Wrench
 } from 'lucide-react'
 import clsx from 'clsx'
+import { Link } from 'react-router-dom'
 import {
   getClaimFileSession, getClaimFileRecords,
-  editClaimFileRecord, exportClaimFileSummary
+  editClaimFileRecord, exportClaimFileSummary, getClaimFileCCheck
 } from '../lib/api'
 import type { ClaimFileRecord, ClaimIssue } from '../types/claimFile'
 import { FUND_TYPE_LABELS } from '../types/claimFile'
@@ -49,6 +51,12 @@ export default function ClaimFileDetailPage() {
       toast.success('บันทึกการแก้ไขเรียบร้อย')
     },
     onError: () => toast.error('ไม่สามารถบันทึกได้'),
+  })
+
+  const cCheck = useQuery({
+    queryKey: ['claim-file-c-check', id],
+    queryFn: () => getClaimFileCCheck(id),
+    retry: false,
   })
 
   const errorCount = records.filter(r => r.has_error).length
@@ -129,6 +137,61 @@ export default function ClaimFileDetailPage() {
           onClick={() => { setFilterError(undefined); setSearch('') }}
         />
       </div>
+
+      {/* ผลตรวจเงื่อนไขติด C */}
+      {cCheck.data && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center gap-3">
+            <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-rose-600" /> ตรวจเงื่อนไขติด C
+            </h3>
+            {cCheck.data.findings.length === 0 ? (
+              <span className="text-sm text-emerald-600 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" /> ไม่พบเงื่อนไขติด C ที่ระบบตรวจได้
+              </span>
+            ) : (
+              <span className="text-sm text-gray-600">
+                พบ <b className="text-rose-600">{cCheck.data.findings.filter(f => f.severity === 'ERROR').length}</b> เรื่องที่ต้องแก้
+                {cCheck.data.warning_count > 0 && <> · <b className="text-amber-600">{cCheck.data.findings.filter(f => f.severity === 'WARNING').length}</b> เรื่องที่ควรดู</>}
+              </span>
+            )}
+            <span className="text-xs text-gray-400 ml-auto">ตรวจ {cCheck.data.checked.length} รายการ</span>
+          </div>
+
+          {cCheck.data.findings.length > 0 && (
+            <ul className="divide-y divide-gray-100">
+              {cCheck.data.findings.map((f, i) => (
+                <li key={i} className="px-4 py-3 flex flex-wrap items-center gap-3 hover:bg-gray-50">
+                  <span className={clsx('font-mono text-xs font-bold rounded px-2 py-1 shrink-0',
+                    f.severity === 'ERROR' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>
+                    {f.code}
+                  </span>
+                  <div className="flex-1 min-w-[16rem]">
+                    <div className="text-sm text-gray-800">{f.title}</div>
+                    <div className="text-xs text-gray-500">{f.detail}</div>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-700">{f.count} รายการ</span>
+                  <Link to={f.to}
+                    className="text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 inline-flex items-center gap-1">
+                    <Wrench className="w-3.5 h-3.5" /> {f.menu} <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {cCheck.data.skipped.length > 0 && (
+            <div className="px-4 py-2 text-[11px] text-gray-400 border-t">
+              ไม่ได้ตรวจ: {cCheck.data.skipped.map(s2 => s2.check).join(' · ')} (ไม่มีแฟ้มที่เกี่ยวข้องในชุดนี้)
+            </div>
+          )}
+        </div>
+      )}
+      {cCheck.isError && (
+        <div className="card p-4 text-sm text-gray-500">
+          ตรวจเงื่อนไขติด C ไม่ได้ — session นี้อัปโหลดก่อนระบบจะเก็บไฟล์ต้นฉบับ ให้อัปโหลดไฟล์ชุดนี้ใหม่
+        </div>
+      )}
 
       {/* Search + filter bar */}
       <div className="flex items-center gap-3">

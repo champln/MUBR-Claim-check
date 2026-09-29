@@ -19,6 +19,7 @@ from models import (
 )
 from services.claim_file_parser import parse_claim_files, detect_fund_type_from_content
 from services.claim_file_validator import validate_claim_records
+from services.c_code_checker import check_c_codes
 from services.raw_row_editor import apply_edits, read_sections
 
 router = APIRouter(prefix="/claim-files", tags=["Claim File Check"])
@@ -609,3 +610,21 @@ def download_raw(
         "Access-Control-Expose-Headers": "X-Filename, X-Edit-Count, X-Files-Changed",
     }
     return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)
+
+
+@router.get("/{session_id}/c-check")
+def c_check(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ตรวจหาเงื่อนไขติด C ทุกแบบในชุดไฟล์นี้ครั้งเดียว (ใช้ค่าที่แก้ไว้แล้วถ้ามี)"""
+    s = _get_session_or_404(session_id, db)
+    files = _load_source(s)
+    edits = _stored_edits(s)
+    if edits:
+        try:
+            files = apply_edits(files, edits)
+        except ValueError:
+            pass
+    return check_c_codes(files)

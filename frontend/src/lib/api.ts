@@ -814,6 +814,29 @@ export interface RawEdit {
   value: string
 }
 
+export interface CFinding {
+  code: string
+  title: string
+  detail: string
+  count: number
+  menu: string
+  to: string
+  severity: 'ERROR' | 'WARNING'
+  rows: any[]
+}
+
+export interface CCheckResult {
+  files: string[]
+  findings: CFinding[]
+  error_count: number
+  warning_count: number
+  checked: string[]
+  skipped: { check: string; reason: string }[]
+}
+
+export const getClaimFileCCheck = (sessionId: number) =>
+  api.get<CCheckResult>(`/claim-files/${sessionId}/c-check`).then(r => r.data)
+
 export const getClaimFileRaw = (sessionId: number) =>
   api.get<RawViewResult>(`/claim-files/${sessionId}/raw`).then(r => r.data)
 

@@ -86,12 +86,21 @@ _ROUTERS = [
     cipn_daterev.router,
 ]
 
-# ลงทะเบียน 2 ชุด:
-#   - path เปล่า (/auth/...)      : โหมด dev ที่ Vite proxy ตัด /api ออกให้แล้ว
-#   - นำหน้า /api (/api/auth/...) : โหมด production ที่เบราว์เซอร์เรียกตรงมาที่ FastAPI
+_FRONTEND_DIST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"
+)
+_SERVING_SPA = os.path.isdir(_FRONTEND_DIST)
+
+# /api/... : เส้นทางจริงของ API ใช้ทั้งโหมด dev และ production
 for _r in _ROUTERS:
-    app.include_router(_r)
     app.include_router(_r, prefix="/api")
+
+# path เปล่า (/auth/...) : เฉพาะโหมด dev ที่ Vite proxy ตัด /api ออกให้แล้ว
+# ห้ามลงทะเบียนตอนเสิร์ฟหน้าเว็บเอง ไม่งั้น API จะบังเส้นทางของหน้าเว็บ
+# (เช่นเปิด /claim-files/5 ตรงๆ แล้วได้ JSON แทนหน้าจอ)
+if not _SERVING_SPA:
+    for _r in _ROUTERS:
+        app.include_router(_r)
 
 
 @app.get("/health")
@@ -102,9 +111,7 @@ def health():
 
 # ─── เสิร์ฟหน้าเว็บที่ build แล้ว (production: เหลือ process/พอร์ตเดียว) ──────────
 # ต้องประกาศ "หลัง" ทุก API route เพราะเป็น catch-all
-_FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
-
-if os.path.isdir(_FRONTEND_DIST):
+if _SERVING_SPA:
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
