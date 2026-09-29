@@ -124,15 +124,15 @@ export default function Sidebar() {
                 <ChevronDown className={clsx('w-3.5 h-3.5 mt-0.5 text-blue-300 transition-transform shrink-0',
                   !open && '-rotate-90')} />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[11px] font-semibold text-blue-300 uppercase tracking-wide">
+                  <span className="block text-[13px] font-semibold text-blue-300 uppercase tracking-wide">
                     {group.title}
                   </span>
                   {group.note && (
-                    <span className="block text-[10px] text-blue-400/80 font-mono leading-tight truncate">{group.note}</span>
+                    <span className="block text-[12px] text-blue-400/80 font-mono leading-tight truncate">{group.note}</span>
                   )}
                 </span>
                 {!open && (
-                  <span className="text-[10px] text-blue-400 bg-blue-800/70 rounded-full px-1.5 shrink-0">
+                  <span className="text-[12px] text-blue-400 bg-blue-800/70 rounded-full px-1.5 shrink-0">
                     {group.items.length}
                   </span>
                 )}
@@ -146,7 +146,7 @@ export default function Sidebar() {
                       end={to === '/'}
                       className={({ isActive }) =>
                         clsx(
-                          'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
+                          'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[15px] font-medium transition-all',
                           isActive
                             ? 'bg-white text-blue-900 shadow'
                             : 'text-blue-200 hover:bg-blue-800 hover:text-white'

@@ -614,7 +614,7 @@ const App = () => {
             </div>
             <div>
               <h1 className="font-extrabold text-lg leading-tight tracking-wide text-[#00246B]">MBR Center</h1>
-              <p className="text-[10px] text-[#F2A900] font-bold tracking-wider uppercase mt-0.5">Mahidol Bumrungrak</p>
+              <p className="text-[12px] text-[#F2A900] font-bold tracking-wider uppercase mt-0.5">Mahidol Bumrungrak</p>
             </div>
           </div>
         </div>
@@ -713,7 +713,7 @@ const App = () => {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[11px] tracking-wider border-b border-slate-200">
+                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[13px] tracking-wider border-b border-slate-200">
                       <tr><th className="px-6 py-4">SvID</th><th className="px-6 py-4">InvNo</th><th className="px-6 py-4">HN</th><th className="px-6 py-4">Name</th><th className="px-6 py-4 text-right">Amount</th><th className="px-6 py-4">Code (Dx)</th><th className="px-6 py-4">Status</th><th className="px-6 py-4 text-center">Action</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -726,7 +726,7 @@ const App = () => {
                           <td className="px-6 py-4 text-right font-mono text-slate-600 font-medium">{visit.Amount.toLocaleString()}</td>
                           <td className="px-6 py-4 font-medium text-slate-600">
                              {visit.Code}
-                             {visit.errors.length > 0 && <span className="inline-flex items-center justify-center px-1.5 py-0.5 ml-2 text-[10px] font-bold bg-rose-100 text-rose-600 rounded">+{visit.errors.length}</span>}
+                             {visit.errors.length > 0 && <span className="inline-flex items-center justify-center px-1.5 py-0.5 ml-2 text-[12px] font-bold bg-rose-100 text-rose-600 rounded">+{visit.errors.length}</span>}
                           </td>
                           <td className="px-6 py-4">
                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${visit.status === 'PASS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
@@ -798,7 +798,7 @@ const App = () => {
                          </div>
                       </div>
                       <div className="p-0 bg-slate-50 overflow-x-auto relative border-t border-slate-100">
-                         <div className="absolute top-2 right-4 text-slate-400 text-[10px] font-mono tracking-widest uppercase">PostgreSQL</div>
+                         <div className="absolute top-2 right-4 text-slate-400 text-[12px] font-mono tracking-widest uppercase">PostgreSQL</div>
                          <pre className="text-blue-800 text-sm font-mono p-5 leading-relaxed"><code>{script.code}</code></pre>
                       </div>
                    </div>
@@ -918,7 +918,7 @@ const App = () => {
                           <button onClick={addDx} className="text-xs font-bold bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md border border-slate-200 hover:bg-slate-100 transition-colors flex items-center gap-1"><Plus className="w-3.5 h-3.5"/> เพิ่ม Dx</button>
                        </div>
                        <table className="w-full text-sm text-left border-collapse">
-                          <thead className="text-[10px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
+                          <thead className="text-[12px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
                             <tr><th className="px-3 py-2 w-14">SL</th><th className="px-3 py-2 w-28">Code</th><th className="px-3 py-2">Desc</th><th className="px-3 py-2 w-24">CodeSet</th><th className="px-3 py-2 w-12 text-center">ลบ</th></tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -943,7 +943,7 @@ const App = () => {
                        </div>
                        <div className="overflow-x-auto">
                           <table className="text-sm text-left border-collapse" style={{minWidth:'1100px'}}>
-                             <thead className="text-[10px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
+                             <thead className="text-[12px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
                                 <tr>
                                    <th className="px-2 py-2 w-24">SvDate</th>
                                    <th className="px-2 py-2 w-16">BillMu</th>
@@ -953,8 +953,8 @@ const App = () => {
                                    <th className="px-2 py-2 text-right w-16">Qty</th>
                                    <th className="px-2 py-2 text-right w-22">UP</th>
                                    <th className="px-2 py-2 text-right w-22">ClaimUP</th>
-                                   <th className="px-2 py-2 text-right w-24 bg-slate-100/50">ChargeAmt<br/><span className="normal-case text-[9px] text-slate-300">(auto)</span></th>
-                                   <th className="px-2 py-2 text-right w-24 bg-blue-50/50">ClaimAmt<br/><span className="normal-case text-[9px] text-blue-300">(auto)</span></th>
+                                   <th className="px-2 py-2 text-right w-24 bg-slate-100/50">ChargeAmt<br/><span className="normal-case text-[11px] text-slate-300">(auto)</span></th>
+                                   <th className="px-2 py-2 text-right w-24 bg-blue-50/50">ClaimAmt<br/><span className="normal-case text-[11px] text-blue-300">(auto)</span></th>
                                    <th className="px-2 py-2 w-28">SvRefID</th>
                                    <th className="px-2 py-2 w-20">ClaimCat</th>
                                    <th className="px-2 py-2 w-10 text-center">ลบ</th>
@@ -1007,7 +1007,7 @@ const App = () => {
                         </div>
                         <div className="overflow-x-auto">
                             <table className="text-sm text-left border-collapse" style={{minWidth:'1400px'}}>
-                              <thead className="text-[10px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
+                              <thead className="text-[12px] text-slate-400 bg-slate-50 uppercase tracking-wider border-y border-slate-100">
                                   <tr>
                                     <th className="px-2 py-2 w-16">PrdCat</th>
                                     <th className="px-2 py-2 w-28">HospDrgID</th>
@@ -1018,9 +1018,9 @@ const App = () => {
                                     <th className="px-2 py-2 w-40">sigText</th>
                                     <th className="px-2 py-2 text-right w-16">Qty</th>
                                     <th className="px-2 py-2 text-right w-20">UP</th>
-                                    <th className="px-2 py-2 text-right w-24 bg-slate-100/50">ChargeAmt<br/><span className="normal-case text-[9px] text-slate-300">(auto)</span></th>
+                                    <th className="px-2 py-2 text-right w-24 bg-slate-100/50">ChargeAmt<br/><span className="normal-case text-[11px] text-slate-300">(auto)</span></th>
                                     <th className="px-2 py-2 text-right w-22">ReimbPrice</th>
-                                    <th className="px-2 py-2 text-right w-24 bg-amber-50/50">ReimbAmt<br/><span className="normal-case text-[9px] text-amber-300">(auto)</span></th>
+                                    <th className="px-2 py-2 text-right w-24 bg-amber-50/50">ReimbAmt<br/><span className="normal-case text-[11px] text-amber-300">(auto)</span></th>
                                     <th className="px-2 py-2 w-20">PrdSeCode</th>
                                     <th className="px-2 py-2 w-20">Claimcat</th>
                                     <th className="px-2 py-2 w-20">CodeSet</th>
@@ -1086,15 +1086,15 @@ const App = () => {
                 </h3>
                 <form onSubmit={handleSaveSql} className="space-y-5">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ชื่อคำสั่ง (Title)</label>
+                    <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ชื่อคำสั่ง (Title)</label>
                     <input type="text" placeholder="e.g. รายงานดึงข้อมูล OPD" value={currentSql.title} onChange={e => setCurrentSql({...currentSql, title: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all" required />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">คำอธิบาย (Description)</label>
+                    <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">คำอธิบาย (Description)</label>
                     <input type="text" placeholder="e.g. ดึง 16 หมวด กบก." value={currentSql.desc} onChange={e => setCurrentSql({...currentSql, desc: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all" />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">SQL Code</label>
+                    <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">SQL Code</label>
                     <textarea placeholder="SELECT * FROM..." value={currentSql.code} onChange={e => setCurrentSql({...currentSql, code: e.target.value})} className="w-full border border-slate-200 px-4 py-4 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-slate-50 text-blue-800 leading-relaxed" rows="10" required />
                   </div>
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -1119,32 +1119,32 @@ const App = () => {
                 <form onSubmit={handleSaveRule} className="space-y-5">
                   <div className="grid grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">หมวดหมู่กฎ</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">หมวดหมู่กฎ</label>
                       <select value={currentRule?.category || 'C_ERROR'} onChange={e => setCurrentRule({...currentRule, category: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white transition-all">
                         <option value="C_ERROR">กฎตรวจสอบติด C</option>
                         <option value="LOCAL_RULE">เงื่อนไขศูนย์การแพทย์</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Rule ID</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Rule ID</label>
                       <input type="text" placeholder="e.g. C05" value={currentRule?.id} onChange={e => setCurrentRule({...currentRule, id: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white transition-all" disabled={isEditingRule} required />
                     </div>
                   </div>
                   <div className="grid grid-cols-1">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ชื่อกฎ (Label)</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ชื่อกฎ (Label)</label>
                       <input type="text" value={currentRule?.label} onChange={e => setCurrentRule({...currentRule, label: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white transition-all" required />
                     </div>
                   </div>
                   <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ระดับความรุนแรง (Severity)</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ระดับความรุนแรง (Severity)</label>
                       <select value={currentRule?.severity} onChange={e => setCurrentRule({...currentRule, severity: e.target.value})} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white transition-all">
                         <option value="Critical">Critical (ห้ามเบิก - Status FAIL)</option>
                         <option value="Warning">Warning (แจ้งเตือน - Status PASS)</option>
                       </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">คำอธิบาย (Description)</label>
+                    <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">คำอธิบาย (Description)</label>
                     <textarea value={currentRule?.desc} onChange={e => setCurrentRule({...currentRule, desc: e.target.value})} className="w-full border border-slate-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all" rows="3" />
                   </div>
                   <div className="flex items-center gap-3 pt-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -1174,7 +1174,7 @@ const App = () => {
                 </p>
                 <div className="space-y-5">
                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ฟิลด์ที่ต้องการแก้ไข</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ฟิลด์ที่ต้องการแก้ไข</label>
                       <select value={bulkField} onChange={e => setBulkField(e.target.value)} className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white transition-all">
                          <option value="">-- เลือกฟิลด์ --</option>
                          <optgroup label="OPServices">
@@ -1199,7 +1199,7 @@ const App = () => {
                       </select>
                    </div>
                    <div>
-                      <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ค่าใหม่</label>
+                      <label className="block text-[13px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">ค่าใหม่</label>
                       <input type="text" value={bulkValue} onChange={e => setBulkValue(e.target.value)} placeholder="พิมพ์ค่าที่ต้องการตั้ง..." className="w-full border border-slate-300 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all" />
                    </div>
                    <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700 flex items-start gap-2">
@@ -1281,7 +1281,7 @@ const SidebarItem = ({ icon, label, active, onClick }) => (
 const StatCard = ({ title, value, sub, icon, bg, textColor = 'text-slate-800' }) => (
   <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-start justify-between hover:shadow-md transition-shadow">
     <div>
-      <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">{title}</p>
+      <p className="text-[13px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">{title}</p>
       <h3 className={`text-3xl font-black tracking-tight ${textColor}`}>{value}</h3>
       <p className="text-xs text-slate-400 mt-1.5 font-medium">{sub}</p>
     </div>
@@ -1291,7 +1291,7 @@ const StatCard = ({ title, value, sub, icon, bg, textColor = 'text-slate-800' })
 
 const Input = ({ label, field, data, onChange, type="text", span="", readOnly=false, bg="bg-white", font="" }) => (
   <div className={span}>
-    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">{label}</label>
+    <label className="text-[12px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">{label}</label>
     <input type={type} value={data[field] ?? ''} onChange={(e) => onChange(field, e.target.value)} className={`w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm ${bg} ${font}`} readOnly={readOnly} />
   </div>
 );

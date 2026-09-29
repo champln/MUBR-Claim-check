@@ -215,7 +215,7 @@ export default function CipnDateRevPage() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 text-[11px] text-gray-500 border-t">
+          <div className="px-4 py-2 text-[13px] text-gray-500 border-t">
             แสดง {rows.length} จาก {preview.total_rows} รายการ
             {q && <> · ค้นหา "<b>{search.trim()}</b>"</>}
             {onlySuspect && <> · กรองเฉพาะที่น่าสงสัย</>}
@@ -231,7 +231,7 @@ function Stat({ label, value, color = 'text-gray-700' }: { label: string; value:
   return (
     <div className="text-center">
       <div className={clsx('font-bold', color)}>{value}</div>
-      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className="text-[12px] text-gray-400">{label}</div>
     </div>
   )
 }

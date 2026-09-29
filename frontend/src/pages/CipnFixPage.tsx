@@ -192,7 +192,7 @@ export default function CipnFixPage() {
               <ul className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
                 {result.findings.map((f, i) => (
                   <li key={i} className="px-4 py-2.5 flex items-start gap-3 text-sm">
-                    <span className={clsx('font-mono text-[11px] font-bold rounded px-1.5 py-0.5 shrink-0',
+                    <span className={clsx('font-mono text-[13px] font-bold rounded px-1.5 py-0.5 shrink-0',
                       f.severity === 'ERROR' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>
                       {f.code}
                     </span>
@@ -256,7 +256,7 @@ export default function CipnFixPage() {
                             {r.claim_cat}
                           </span>
                           {r.suggest_cat && (
-                            <span className="text-[11px] text-amber-700 ml-1.5">ควรเป็น {r.suggest_cat}</span>
+                            <span className="text-[13px] text-amber-700 ml-1.5">ควรเป็น {r.suggest_cat}</span>
                           )}
                         </td>
                         <td className="px-3 py-2">
@@ -287,7 +287,7 @@ export default function CipnFixPage() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 border-t text-[11px] text-gray-500 flex items-start gap-1.5">
+            <div className="px-4 py-2 border-t text-[13px] text-gray-500 flex items-start gap-1.5">
               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               เปลี่ยนเป็น T ต้องกรอกราคาเบิกต่อหน่วยตามบัญชีอัตราของกรมบัญชีกลาง — ระบบจะไม่คิดราคาให้เองจากยอดที่เรียกเก็บ
               เพราะจะกลายเป็นการเบิกเงินที่โรงพยาบาลไม่มีสิทธิ์

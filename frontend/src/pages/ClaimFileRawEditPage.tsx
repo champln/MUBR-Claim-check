@@ -35,7 +35,7 @@ function columnWidths(sec: RawSection): number[] {
     // หัวคอลัมน์ขึ้นได้ 2 บรรทัด จึงคิดครึ่งหนึ่งของความยาวชื่อไทย
     let longest = Math.max(Math.ceil(th.length / 2) + 2, spec.length, 6)
     for (const row of sec.rows) longest = Math.max(longest, (row[c] || '').length)
-    return Math.min(Math.max(Math.round(longest * 9.6) + 30, 120), 420)
+    return Math.min(Math.max(Math.round(longest * 10.2) + 34, 132), 440)
   })
 }
 
@@ -223,8 +223,8 @@ export default function ClaimFileRawEditPage() {
                 ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                 : <Lock className="w-3.5 h-3.5 text-gray-400" />}
               {f.file}
-              {f.kind === 'CIPN' && <span className="text-[10px] bg-violet-100 text-violet-700 rounded px-1.5">ผู้ป่วยใน</span>}
-              {n > 0 && <span className="text-[10px] bg-amber-100 text-amber-700 rounded-full px-1.5">{n}</span>}
+              {f.kind === 'CIPN' && <span className="text-[12px] bg-violet-100 text-violet-700 rounded px-1.5">ผู้ป่วยใน</span>}
+              {n > 0 && <span className="text-[12px] bg-amber-100 text-amber-700 rounded-full px-1.5">{n}</span>}
             </button>
           )
         })}
@@ -290,10 +290,10 @@ export default function ClaimFileRawEditPage() {
                         className={clsx('sticky top-0 z-20 border-b-2 border-r border-gray-300 px-2.5 py-2 text-left align-top',
                           active?.c === c ? 'bg-indigo-100' : 'bg-slate-100')}>
                         <div className="flex items-baseline gap-1.5 whitespace-nowrap">
-                          <span className="text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 rounded px-1">{c + 1}</span>
-                          {spec && <span className="text-[11px] font-mono text-gray-500">{spec}</span>}
+                          <span className="text-[13px] font-bold text-indigo-600 bg-white border border-indigo-200 rounded px-1">{c + 1}</span>
+                          {spec && <span className="text-[13px] font-mono text-gray-500">{spec}</span>}
                         </div>
-                        <div className="text-[13px] leading-snug text-gray-800 font-semibold mt-1 line-clamp-2">{th}</div>
+                        <div className="text-[15px] leading-snug text-gray-800 font-semibold mt-1 line-clamp-2">{th}</div>
                       </th>
                     )
                   })}
@@ -326,7 +326,7 @@ export default function ClaimFileRawEditPage() {
                             onChange={e => setCell(k, e.target.value, cell)}
                             onKeyDown={e => onCellKey(e, pos, c, cell, k)}
                             className={clsx(
-                              'w-full h-10 px-2.5 bg-transparent outline-none font-mono text-[15px] text-gray-900',
+                              'w-full h-11 px-3 bg-transparent outline-none font-mono text-[16px] text-gray-900',
                               'focus:bg-white focus:ring-2 focus:ring-inset focus:ring-indigo-500 focus:relative focus:z-[5]',
                               edited && 'font-semibold text-amber-900',
                               locked && 'text-gray-500 bg-gray-50 cursor-not-allowed',
@@ -344,7 +344,7 @@ export default function ClaimFileRawEditPage() {
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500">
+          <div className="flex flex-wrap items-center gap-4 text-[13px] text-gray-500">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-100 border border-amber-400 rounded-sm" /> ช่องที่แก้ (ชี้ค้างเพื่อดูค่าเดิม)</span>
             <span>หัวคอลัมน์: <b className="text-indigo-600">เลขฟิลด์</b> · ชื่อตามสเปก สกส. · ความหมาย</span>
             {draftCount > 0 && (

@@ -117,7 +117,7 @@ export default function TmtFixPage() {
           {rules.map((r, i) => (
             <div key={i} className="flex flex-wrap items-end gap-2 bg-gray-50 rounded-lg p-3">
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">จับคู่ด้วย</label>
+                <label className="text-[13px] text-gray-500 block mb-1">จับคู่ด้วย</label>
                 <select value={r.matchBy} onChange={e => setRule(i, { matchBy: e.target.value as any })}
                   className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white">
                   <option value="old_tmt">TMT เดิม</option>
@@ -125,14 +125,14 @@ export default function TmtFixPage() {
                 </select>
               </div>
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">ค่าที่ค้นหา</label>
+                <label className="text-[13px] text-gray-500 block mb-1">ค่าที่ค้นหา</label>
                 <input value={r.matchValue} onChange={e => setRule(i, { matchValue: e.target.value })}
                   placeholder={r.matchBy === 'old_tmt' ? '849457' : '1592073'}
                   className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono w-40" />
               </div>
               <div className="text-gray-400 pb-2">→</div>
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">TMT ใหม่</label>
+                <label className="text-[13px] text-gray-500 block mb-1">TMT ใหม่</label>
                 <input value={r.newTmt} onChange={e => setRule(i, { newTmt: e.target.value })}
                   placeholder="779311"
                   className="border border-violet-300 rounded-lg px-3 py-1.5 text-sm font-mono w-40 focus:ring-1 focus:ring-violet-400 outline-none" />
@@ -145,7 +145,7 @@ export default function TmtFixPage() {
         </div>
 
         <div className="pt-1">
-          <label className="text-[11px] text-gray-500 block mb-1">หรือ อัปโหลดไฟล์ Excel/CSV (คอลัมน์: TMT ใหม่ + TMT เดิม/Hosdrugcode)</label>
+          <label className="text-[13px] text-gray-500 block mb-1">หรือ อัปโหลดไฟล์ Excel/CSV (คอลัมน์: TMT ใหม่ + TMT เดิม/Hosdrugcode)</label>
           {listFile ? (
             <div className="flex items-center gap-2 text-sm bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 w-fit">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
@@ -228,7 +228,7 @@ function Stat({ label, value, color = 'text-gray-700' }: { label: string; value:
   return (
     <div className="text-center">
       <div className={clsx('font-bold', color)}>{value}</div>
-      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className="text-[12px] text-gray-400">{label}</div>
     </div>
   )
 }

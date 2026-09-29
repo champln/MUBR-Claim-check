@@ -340,7 +340,7 @@ function SessionRow({
           </button>
         ) : (
           <span
-            className="text-[11px] text-gray-400 px-2"
+            className="text-[13px] text-gray-400 px-2"
             title="session นี้อัปโหลดก่อนมีฟีเจอร์แก้ไฟล์ — อัปโหลดไฟล์ชุดนี้ใหม่อีกครั้งเพื่อแก้ไข"
           >
             แก้ไฟล์ไม่ได้ (อัปโหลดใหม่)

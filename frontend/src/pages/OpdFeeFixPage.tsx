@@ -123,18 +123,18 @@ export default function OpdFeeFixPage() {
         <h3 className="font-semibold text-gray-800 text-sm pt-1 border-t">3. ตั้งค่ารหัสรายการ (ปกติไม่ต้องแก้)</h3>
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="text-[11px] text-gray-500 block mb-1">รหัสรายการที่จะเติม (คั่นด้วยเว้นวรรค/คอมมา)</label>
+            <label className="text-[13px] text-gray-500 block mb-1">รหัสรายการที่จะเติม (คั่นด้วยเว้นวรรค/คอมมา)</label>
             <input value={codes} onChange={e => { setCodes(e.target.value); setPreview(null) }}
               placeholder="55020"
               className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono w-64" />
-            <p className="text-[11px] text-gray-400 mt-1">ว่าง = ใช้ 55020 (ค่าบริการทั่วไป ในเวลาราชการ)</p>
+            <p className="text-[13px] text-gray-400 mt-1">ว่าง = ใช้ 55020 (ค่าบริการทั่วไป ในเวลาราชการ)</p>
           </div>
           <div>
-            <label className="text-[11px] text-gray-500 block mb-1">ยอดที่จะเติม</label>
+            <label className="text-[13px] text-gray-500 block mb-1">ยอดที่จะเติม</label>
             <input value={amount} onChange={e => { setAmount(e.target.value); setPreview(null) }}
               placeholder="ตามยอดของรายการ"
               className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono w-44" />
-            <p className="text-[11px] text-gray-400 mt-1">ว่าง = ใช้ยอดของรายการนั้น (ฟิลด์ 9)</p>
+            <p className="text-[13px] text-gray-400 mt-1">ว่าง = ใช้ยอดของรายการนั้น (ฟิลด์ 9)</p>
           </div>
         </div>
       </div>
@@ -158,7 +158,7 @@ export default function OpdFeeFixPage() {
             <span className="text-gray-500 text-xs">รหัสที่ใช้: {preview.codes_used.join(', ')}</span>
             <div className="text-center">
               <div className="font-bold text-amber-600">{preview.total_change_count}</div>
-              <div className="text-[10px] text-gray-400">รายการที่จะเติม</div>
+              <div className="text-[12px] text-gray-400">รายการที่จะเติม</div>
             </div>
           </div>
           <div className="overflow-x-auto max-h-96 overflow-y-auto">

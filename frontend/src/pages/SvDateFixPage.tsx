@@ -93,11 +93,11 @@ export default function SvDateFixPage() {
       <div className="card p-5 space-y-2">
         <h3 className="font-semibold text-gray-800 text-sm">2. ตั้งค่า (ปกติไม่ต้องกรอก)</h3>
         <div>
-          <label className="text-[11px] text-gray-500 block mb-1">บังคับใช้วันที่นี้แทนวัน visit</label>
+          <label className="text-[13px] text-gray-500 block mb-1">บังคับใช้วันที่นี้แทนวัน visit</label>
           <input value={forceDate} onChange={e => { setForceDate(e.target.value); setPreview(null) }}
             placeholder="YYYY-MM-DD"
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono w-44" />
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[13px] text-gray-400 mt-1">
             ว่าง = ใช้วัน visit จาก BILLTRAN (แนะนำ) · ใช้ช่องนี้เฉพาะกรณีที่วัน visit เองผิด
           </p>
         </div>
@@ -124,7 +124,7 @@ export default function SvDateFixPage() {
             </span>
             <div className="text-center">
               <div className="font-bold text-sky-600">{preview.total_change_count}</div>
-              <div className="text-[10px] text-gray-400">รายการที่จะแก้</div>
+              <div className="text-[12px] text-gray-400">รายการที่จะแก้</div>
             </div>
           </div>
 

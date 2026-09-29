@@ -389,7 +389,7 @@ function Stat({ label, value, color = 'text-gray-700' }: { label: string; value:
   return (
     <div className="text-center">
       <div className={clsx('font-bold', color)}>{value}</div>
-      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className="text-[12px] text-gray-400">{label}</div>
     </div>
   )
 }
@@ -415,7 +415,7 @@ function Field({ label, value, onChange, placeholder, mono, width = 'w-40' }: {
 }) {
   return (
     <div>
-      <label className="text-[11px] text-gray-500 block mb-1">{label}</label>
+      <label className="text-[13px] text-gray-500 block mb-1">{label}</label>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         className={clsx('border border-gray-300 rounded-lg px-3 py-1.5 text-sm', width, mono && 'font-mono')} />
     </div>

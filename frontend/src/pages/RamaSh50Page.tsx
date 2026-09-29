@@ -220,7 +220,7 @@ function Stat({ label, value, color = 'text-gray-700' }: { label: string; value:
   return (
     <div className="text-center">
       <div className={clsx('font-bold', color)}>{value}</div>
-      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className="text-[12px] text-gray-400">{label}</div>
     </div>
   )
 }

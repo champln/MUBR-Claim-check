@@ -181,7 +181,7 @@ export default function ClaimFileDetailPage() {
           )}
 
           {cCheck.data.skipped.length > 0 && (
-            <div className="px-4 py-2 text-[11px] text-gray-400 border-t">
+            <div className="px-4 py-2 text-[13px] text-gray-400 border-t">
               ไม่ได้ตรวจ: {cCheck.data.skipped.map(s2 => s2.check).join(' · ')} (ไม่มีแฟ้มที่เกี่ยวข้องในชุดนี้)
             </div>
           )}

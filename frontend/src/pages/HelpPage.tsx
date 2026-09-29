@@ -268,14 +268,14 @@ export default function HelpPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Link to={g.to} className="font-semibold text-gray-900 hover:text-blue-700">{g.title}</Link>
               {(g.codes || []).map(c => (
-                <span key={c} className="text-[11px] font-mono bg-rose-100 text-rose-700 rounded px-1.5 py-0.5">{c}</span>
+                <span key={c} className="text-[13px] font-mono bg-rose-100 text-rose-700 rounded px-1.5 py-0.5">{c}</span>
               ))}
             </div>
             <p className="text-sm text-gray-600"><b className="text-gray-700">ใช้เมื่อ:</b> {g.when}</p>
             <ol className="text-sm text-gray-700 space-y-1.5">
               {g.steps.map((s, i) => (
                 <li key={i} className="flex gap-2.5">
-                  <span className="shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold flex items-center justify-center">{i + 1}</span>
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[13px] font-semibold flex items-center justify-center">{i + 1}</span>
                   <span>{s}</span>
                 </li>
               ))}
