@@ -55,6 +55,10 @@ const FOOTER_ITEMS: Item[] = [
 
 const COLLAPSE_KEY = 'mubr_sidebar_collapsed'
 
+function isActivePath(pathname: string, to: string): boolean {
+  return to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(to + '/')
+}
+
 function loadCollapsed(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}')
@@ -70,6 +74,13 @@ export default function Sidebar() {
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)) } catch { /* โหมดส่วนตัวเขียนไม่ได้ ไม่เป็นไร */ }
   }, [collapsed])
+
+  // ย้ายไปหน้าที่อยู่ในกลุ่มที่พับไว้ -> กางกลุ่มนั้นให้ (ทำงานตอนเปลี่ยนหน้าเท่านั้น
+  // จึงไม่ไปขัดตอนผู้ใช้กดพับกลุ่มที่ตัวเองอยู่)
+  useEffect(() => {
+    const g = GROUPS.find(gr => gr.items.some(it => isActivePath(location.pathname, it.to)))
+    if (g) setCollapsed(c => (c[g.title] ? { ...c, [g.title]: false } : c))
+  }, [location.pathname])
 
   const user = getAuthUser()
   const canManageRules = user?.role === 'ADMIN' || user?.role === 'REVIEWER'
@@ -108,11 +119,8 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 px-3 py-3 overflow-y-auto">
         {groups.map((group, gi) => {
-          // กลุ่มที่มีหน้าที่เปิดอยู่ จะกางให้เสมอ ผู้ใช้ไม่ต้องตามหา
-          const hasActive = group.items.some(
-            it => location.pathname === it.to || (it.to !== '/' && location.pathname.startsWith(it.to + '/')),
-          )
-          const open = hasActive || !collapsed[group.title]
+          const hasActive = group.items.some(it => isActivePath(location.pathname, it.to))
+          const open = !collapsed[group.title]
           return (
             <div key={group.title} className={clsx(gi > 0 && 'mt-2 pt-2 border-t border-blue-800/60')}>
               <button
@@ -132,7 +140,9 @@ export default function Sidebar() {
                   )}
                 </span>
                 {!open && (
-                  <span className="text-[12px] text-blue-400 bg-blue-800/70 rounded-full px-1.5 shrink-0">
+                  <span className={clsx('text-[12px] rounded-full px-1.5 shrink-0',
+                    hasActive ? 'bg-white text-blue-900 font-semibold' : 'bg-blue-800/70 text-blue-400')}
+                    title={hasActive ? 'กลุ่มนี้มีหน้าที่กำลังเปิดอยู่' : ''}>
                     {group.items.length}
                   </span>
                 )}
