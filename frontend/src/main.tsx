@@ -26,6 +26,7 @@ import StdCodeFixPage from './pages/StdCodeFixPage'
 import OpdFeeFixPage from './pages/OpdFeeFixPage'
 import SvDateFixPage from './pages/SvDateFixPage'
 import CipnDateRevPage from './pages/CipnDateRevPage'
+import CipnFixPage from './pages/CipnFixPage'
 import HelpPage from './pages/HelpPage'
 import LivePrescreenPage from './pages/LivePrescreenPage'
 import { getAuthToken } from './lib/session'
@@ -75,6 +76,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route path="/opd-fee-fix" element={<OpdFeeFixPage />} />
             <Route path="/svdate-fix" element={<SvDateFixPage />} />
             <Route path="/cipn-daterev" element={<CipnDateRevPage />} />
+            <Route path="/cipn-fix" element={<CipnFixPage />} />
             <Route path="/help" element={<HelpPage />} />
           </Route>
         </Routes>

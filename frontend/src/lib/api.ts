@@ -730,6 +730,78 @@ export const applyOpdFeeFix = async (
   }
 }
 
+// ─── ตรวจ/แก้ไฟล์ผู้ป่วยใน CIPN ตามสเปก สกส. (ClaimCat + ยอดรวม + HMAC) ────────
+
+export interface CipnFinding {
+  code: string
+  severity: 'ERROR' | 'WARNING'
+  message: string
+  where: string
+  suggest: string
+}
+
+export interface CipnBillRow {
+  seq: string
+  servdate: string
+  billgrcs: string
+  lccode: string
+  desc: string
+  qty: string
+  unit_price: string
+  charge_amt: string
+  discount: string
+  claim_cat: string
+  claim_up: string
+  claim_amt: string
+  suggest_cat: string
+}
+
+export interface CipnValidateResult {
+  file: string
+  findings: CipnFinding[]
+  rows: CipnBillRow[]
+  totals: {
+    drg_charge_file: string
+    xdrg_claim_file: string
+    drg_charge_calc: string
+    xdrg_claim_calc: string
+  }
+  signature_ok: boolean | null
+  error_count: number
+  warning_count: number
+}
+
+export interface CipnChange {
+  seq: string
+  claim_cat: string
+  claim_up?: string
+}
+
+export const validateCipn = (files: File[]) => {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  return api.post<CipnValidateResult>('/cipn-fix/validate', fd).then(r => r.data)
+}
+
+export const applyCipnFix = async (files: File[], changes: CipnChange[]) => {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  if (changes.length) fd.append('changes', JSON.stringify(changes))
+  const res = await api.post('/cipn-fix/apply', fd, { responseType: 'blob' })
+  const filename = res.headers['x-filename'] || 'CIPN.xml'
+  let applied: any[] = []
+  let totals: any = {}
+  try { applied = JSON.parse(res.headers['x-changes'] || '[]') } catch { /* ignore */ }
+  try { totals = JSON.parse(res.headers['x-totals-after'] || '{}') } catch { /* ignore */ }
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { filename, applied, totals, errorsAfter: Number(res.headers['x-errors-after'] || 0) }
+}
+
 // ─── แก้วันที่ปรับปรุงล่าสุด (DateRev) ในไฟล์ผู้ป่วยใน CIPN/AIPN ────────────────
 
 export interface DateRevRow {
