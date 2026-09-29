@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt, CalendarClock, CalendarCheck
+  LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity, UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt, CalendarClock, CalendarCheck, BookOpen
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/cipn-daterev', icon: CalendarCheck, label: 'แก้ DateRev ผู้ป่วยใน' },
   { to: '/reports', icon: BarChart3, label: 'รายงาน' },
   { to: '/account', icon: UserCog, label: 'บัญชีผู้ใช้' },
+  { to: '/help', icon: BookOpen, label: 'วิธีใช้งาน' },
 ]
 
 export default function Sidebar() {
