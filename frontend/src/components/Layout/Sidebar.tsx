@@ -1,8 +1,9 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity,
   UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt,
-  CalendarClock, CalendarCheck, BookOpen, FileCheck2,
+  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -52,7 +53,24 @@ const FOOTER_ITEMS: Item[] = [
   { to: '/help', icon: BookOpen, label: 'วิธีใช้งาน' },
 ]
 
+const COLLAPSE_KEY = 'mubr_sidebar_collapsed'
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
 export default function Sidebar() {
+  const location = useLocation()
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
+
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)) } catch { /* โหมดส่วนตัวเขียนไม่ได้ ไม่เป็นไร */ }
+  }, [collapsed])
+
   const user = getAuthUser()
   const canManageRules = user?.role === 'ADMIN' || user?.role === 'REVIEWER'
   const isAdmin = user?.role === 'ADMIN'
@@ -89,34 +107,61 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-3 overflow-y-auto">
-        {groups.map((group, gi) => (
-          <div key={group.title} className={clsx(gi > 0 && 'mt-4 pt-3 border-t border-blue-800/60')}>
-            <div className="px-3 pb-1.5">
-              <p className="text-[11px] font-semibold text-blue-300 uppercase tracking-wide">{group.title}</p>
-              {group.note && <p className="text-[10px] text-blue-400/80 font-mono leading-tight">{group.note}</p>}
+        {groups.map((group, gi) => {
+          // กลุ่มที่มีหน้าที่เปิดอยู่ จะกางให้เสมอ ผู้ใช้ไม่ต้องตามหา
+          const hasActive = group.items.some(
+            it => location.pathname === it.to || (it.to !== '/' && location.pathname.startsWith(it.to + '/')),
+          )
+          const open = hasActive || !collapsed[group.title]
+          return (
+            <div key={group.title} className={clsx(gi > 0 && 'mt-2 pt-2 border-t border-blue-800/60')}>
+              <button
+                type="button"
+                onClick={() => setCollapsed(c => ({ ...c, [group.title]: !c[group.title] }))}
+                aria-expanded={open}
+                className="w-full flex items-start gap-1.5 px-3 py-1.5 rounded-lg text-left hover:bg-blue-800/50 transition-colors"
+              >
+                <ChevronDown className={clsx('w-3.5 h-3.5 mt-0.5 text-blue-300 transition-transform shrink-0',
+                  !open && '-rotate-90')} />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[11px] font-semibold text-blue-300 uppercase tracking-wide">
+                    {group.title}
+                  </span>
+                  {group.note && (
+                    <span className="block text-[10px] text-blue-400/80 font-mono leading-tight truncate">{group.note}</span>
+                  )}
+                </span>
+                {!open && (
+                  <span className="text-[10px] text-blue-400 bg-blue-800/70 rounded-full px-1.5 shrink-0">
+                    {group.items.length}
+                  </span>
+                )}
+              </button>
+              {open && (
+                <div className="space-y-0.5 mt-0.5">
+                  {group.items.map(({ to, icon: Icon, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      end={to === '/'}
+                      className={({ isActive }) =>
+                        clsx(
+                          'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
+                          isActive
+                            ? 'bg-white text-blue-900 shadow'
+                            : 'text-blue-200 hover:bg-blue-800 hover:text-white'
+                        )
+                      }
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="leading-tight">{label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-0.5">
-              {group.items.map(({ to, icon: Icon, label }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={to === '/'}
-                  className={({ isActive }) =>
-                    clsx(
-                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
-                      isActive
-                        ? 'bg-white text-blue-900 shadow'
-                        : 'text-blue-200 hover:bg-blue-800 hover:text-white'
-                    )
-                  }
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="leading-tight">{label}</span>
-                </NavLink>
-              ))}
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </nav>
 
       {/* Footer */}
