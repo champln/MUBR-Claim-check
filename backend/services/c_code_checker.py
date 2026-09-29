@@ -7,6 +7,7 @@
 from typing import Dict, List
 
 from services import cipn_file_editor as cipn
+from services.cipn_validator import validate as validate_cipn
 from services.aipn_signer import verify as verify_hmac
 from services.csop_file_editor import (
     preview_opd_fee_fix,
@@ -116,6 +117,32 @@ def check_c_codes(files: Dict[str, bytes]) -> dict:
             ))
     except ValueError as e:
         skipped.append({"check": "วันที่ให้บริการ (T42)", "reason": str(e)})
+
+    # ── ผู้ป่วยใน: ClaimCat / ยอดรวม / โครงสร้าง (รหัส 30, 35, 36) ──────────
+    for name, raw in sorted(files.items()):
+        if not cipn.is_cipn(raw):
+            continue
+        checked.append(f"ClaimCat และยอดรวมในไฟล์ผู้ป่วยใน ({name})")
+        v = validate_cipn(raw)
+        by_code: Dict[str, List[dict]] = {}
+        for f in v["findings"]:
+            if f["code"] == "22":
+                continue      # ตรวจลายเซ็นไปแล้วด้านบน
+            by_code.setdefault(f"{f['code']}|{f['severity']}", []).append(f)
+        titles = {
+            "30": "รูปแบบไฟล์ไม่ถูกต้อง",
+            "35": "DRGCharge / ClaimCat ของรายการที่เบิกรวมใน DRG ไม่ถูกต้อง",
+            "36": "XDRGClaim / ClaimCat ของรายการที่เบิกแยกนอก DRG ไม่ถูกต้อง",
+        }
+        for key, items in by_code.items():
+            code, severity = key.split("|")
+            findings.append(_finding(
+                code, titles.get(code, "ข้อผิดพลาดในไฟล์ผู้ป่วยใน"),
+                items[0]["message"][:120],
+                len(items), "ตรวจ/แก้ ClaimCat ผู้ป่วยใน", "/cipn-fix",
+                severity=severity,
+                rows=[{"where": i["where"], "message": i["message"], "suggest": i["suggest"]} for i in items],
+            ))
 
     # ── ผู้ป่วยใน: DateRev เป็นวันที่ส่งออกไฟล์ ─────────────────────────────
     for name, raw in sorted(files.items()):
