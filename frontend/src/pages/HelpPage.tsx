@@ -6,6 +6,7 @@ import {
 import clsx from 'clsx'
 
 type Guide = {
+  group: 'ทั่วไป' | 'ผู้ป่วยนอก' | 'ผู้ป่วยใน'
   to: string
   title: string
   when: string          // ใช้เมื่อไร
@@ -16,6 +17,7 @@ type Guide = {
 
 const GUIDES: Guide[] = [
   {
+    group: 'ทั่วไป',
     to: '/claim-files',
     title: 'ตรวจไฟล์ส่งเบิก',
     when: 'อยากรู้ว่าไฟล์ชุดนี้มีข้อผิดพลาดอะไรบ้างก่อนส่ง หรืออยากแก้ค่าในไฟล์เองทีละช่อง',
@@ -35,6 +37,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/stdcode-fix',
     title: 'แก้รหัสหัตถการ (S19/S41)',
     codes: ['S19', 'S41'],
@@ -52,6 +55,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/opd-fee-fix',
     title: 'แก้ยอดค่าบริการ ผป.นอก (A04/T33/45)',
     codes: ['A04', 'T33', 'T45'],
@@ -69,6 +73,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/svdate-fix',
     title: 'แก้วันที่ให้บริการ (T42)',
     codes: ['T42'],
@@ -84,6 +89,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยใน',
     to: '/cipn-fix',
     title: 'ตรวจ/แก้ ClaimCat ผู้ป่วยใน',
     codes: ['30', '35', '36'],
@@ -102,6 +108,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยใน',
     to: '/cipn-daterev',
     title: 'แก้ DateRev ผู้ป่วยใน',
     when: 'รายการในไฟล์ผู้ป่วยในมีวันที่ปรับปรุงล่าสุดเป็นวันที่ export แทนวันที่จริง หรือไฟล์ถูกแก้มือมาจนค่า HMAC ไม่ตรง',
@@ -118,6 +125,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/rama-sh50',
     title: 'เติมข้อมูล ปกส.รามา SH50',
     when: 'ไฟล์ประกันสังคมที่ รพ.หลักเป็นรามาธิบดี ต้องเติมรหัส รพ.หลักและผู้ร่วมจ่าย 50 บาท',
@@ -128,6 +136,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/tmt-fix',
     title: 'แก้ไขรหัส TMT ยา',
     when: 'ต้องเปลี่ยนรหัส TMT ของยาให้ตรงกันทั้งใน BILLTRAN และ BILLDISP',
@@ -139,6 +148,7 @@ const GUIDES: Guide[] = [
     notes: ['เมนูนี้ยังไม่เคยตรวจเทียบกับไฟล์จริงคู่ก่อน/หลัง แนะนำให้ดูผล preview ให้ละเอียดก่อนใช้จริง'],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/covid19-fix',
     title: 'แก้ไฟล์ COVID-19',
     when: 'ต้องเติมรหัสอนุมัติ COV-19 ให้ visit ที่เกี่ยวกับโควิด',
@@ -149,6 +159,7 @@ const GUIDES: Guide[] = [
     ],
   },
   {
+    group: 'ผู้ป่วยนอก',
     to: '/cpap-fix',
     title: 'แก้ไฟล์ CPAP/PSG',
     when: 'ไฟล์เคลม CPAP หรือตรวจการนอนหลับ ต้องเติมรหัสอนุมัติและแก้ Class/SvPID',
@@ -238,9 +249,21 @@ export default function HelpPage() {
           className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
       </div>
 
-      {/* คู่มือรายเมนู */}
-      <div className="space-y-4">
-        {guides.map(g => (
+      {/* คู่มือรายเมนู แยกตามกลุ่มเหมือนแถบเมนูซ้าย */}
+      <div className="space-y-6">
+        {(['ทั่วไป', 'ผู้ป่วยนอก', 'ผู้ป่วยใน'] as const).map(group => {
+          const inGroup = guides.filter(g => g.group === group)
+          if (!inGroup.length) return null
+          return (
+            <div key={group} className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <span className={clsx('w-2 h-2 rounded-full',
+                  group === 'ผู้ป่วยนอก' ? 'bg-amber-400' : group === 'ผู้ป่วยใน' ? 'bg-violet-500' : 'bg-blue-500')} />
+                {group === 'ทั่วไป' ? 'ใช้ได้กับทุกแบบ'
+                  : group === 'ผู้ป่วยนอก' ? 'แก้ไฟล์ผู้ป่วยนอก (BILLTRAN · BILLDISP · OPServices)'
+                  : 'แก้ไฟล์ผู้ป่วยใน (CIPN · AIPN)'}
+              </h3>
+              {inGroup.map(g => (
           <div key={g.to} className="card p-5 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Link to={g.to} className="font-semibold text-gray-900 hover:text-blue-700">{g.title}</Link>
@@ -265,7 +288,10 @@ export default function HelpPage() {
               </ul>
             )}
           </div>
-        ))}
+              ))}
+            </div>
+          )
+        })}
         {guides.length === 0 && (
           <div className="card p-8 text-center text-sm text-gray-400">ไม่พบวิธีใช้ที่ตรงกับ "{q.trim()}"</div>
         )}
