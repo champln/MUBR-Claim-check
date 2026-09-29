@@ -340,7 +340,8 @@ def apply_daterev(raw: bytes, rules: Dict[str, str], sign_mode: str = "") -> byt
     rules = {str(k).strip(): str(v).strip() for k, v in (rules or {}).items()
              if str(k).strip() and str(v).strip()}
     if not rules:
-        raise ValueError("ยังไม่ได้ระบุวันที่ใหม่ของรายการใด")
+        # ไม่ระบุกฎ = "ซ่อมลายเซ็น" อย่างเดียว (ใช้กับไฟล์ที่แก้มือไว้แล้วลายเซ็นไม่ตรง)
+        return CipnFile.parse(raw).to_bytes(sign_mode)
     for code, value in rules.items():
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
             raise ValueError(f"วันที่ของรหัส {code} ต้องอยู่ในรูปแบบ YYYY-MM-DD (ได้ '{value}')")

@@ -45,7 +45,7 @@ export default function CipnDateRevPage() {
 
   const applyMutation = useMutation({
     mutationFn: () => applyDateRev(files, rules),
-    onSuccess: (res) => toast.success(`แก้ DateRev แล้ว — ดาวน์โหลด ${res.filename}`),
+    onSuccess: (res) => toast.success(`เซ็นลายเซ็นใหม่แล้ว — ดาวน์โหลด ${res.filename}`),
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
 
@@ -112,9 +112,13 @@ export default function CipnDateRevPage() {
           <Search className="w-4 h-4" /> {previewMutation.isPending ? 'กำลังตรวจ...' : 'ตรวจสอบไฟล์'}
         </button>
         <button onClick={() => applyMutation.mutate()}
-          disabled={!canRun || ruleCount === 0 || applyMutation.isPending}
+          disabled={!canRun || applyMutation.isPending || (ruleCount === 0 && preview?.signature_ok !== false)}
           className="btn-primary">
-          <Download className="w-4 h-4" /> {applyMutation.isPending ? 'กำลังแก้...' : `แก้ไข & ดาวน์โหลด${ruleCount ? ` (${ruleCount})` : ''}`}
+          <Download className="w-4 h-4" />
+          {applyMutation.isPending ? 'กำลังแก้...'
+            : ruleCount > 0 ? `แก้ไข & ดาวน์โหลด (${ruleCount})`
+            : preview?.signature_ok === false ? 'ซ่อมลายเซ็น & ดาวน์โหลด'
+            : 'แก้ไข & ดาวน์โหลด'}
         </button>
       </div>
 

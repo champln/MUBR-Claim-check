@@ -93,8 +93,14 @@ async def apply(
     current_user: User = Depends(get_current_user),
 ):
     name, raw = await _read_cipn_upload(files)
+    parsed = _parse_rules(rules)
+    if not parsed and verify_signature(raw):
+        raise HTTPException(
+            422,
+            "ไฟล์นี้ลายเซ็นถูกต้องอยู่แล้วและยังไม่ได้ระบุวันที่ที่จะแก้ — ไม่มีอะไรต้องทำ",
+        )
     try:
-        out = apply_daterev(raw, _parse_rules(rules), sign_mode=sign_mode)
+        out = apply_daterev(raw, parsed, sign_mode=sign_mode)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
