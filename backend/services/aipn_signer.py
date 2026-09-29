@@ -1,16 +1,22 @@
 """
 ลายเซ็นท้ายไฟล์ AIPN / CIPN (ผู้ป่วยใน)
 
-แม้ attribute จะชื่อ HMAC แต่ของจริง "ไม่ได้ใช้คีย์" — ถอดสูตรได้จากโค้ดของโปรแกรม
-สกส. เอง (SQL4DataAudit_Claim.SQL ใน RCM):
+แม้ attribute จะชื่อ HMAC แต่ของจริง "ไม่ได้ใช้คีย์" — เป็น MD5 ธรรมดา
 
-    _value = strextract(_data, [<CIPN>], [</CIPN>], 1, 4)   # เอาเฉพาะ <CIPN>...</CIPN>
-    _value = _value + crlf                                   # ต่อท้ายด้วย CRLF
-    _md5   = md5(_value)                                     # MD5 ธรรมดา
-    <?EndNote HMAC="<_md5>"?>
+วิธีตามที่ สกส. แจ้ง (ทำมือ):
+  1. ลบบรรทัดบนสุด  <?xml version="1.0" encoding="windows-874"?>
+  2. ลบบรรทัดล่างสุด <?EndNote HMAC="..."?>
+  3. เซฟไฟล์ แล้วหาค่า MD5 ของไฟล์นั้น
+  4. เติมบรรทัดบนกลับ และเติมบรรทัดล่างด้วยค่า MD5 ใหม่
 
-ต่างจากแฟ้ม OPD ตรงที่ OPD เอา "ทุกไบต์ก่อน <?EndNote" ไปเข้า MD5 ส่วนผู้ป่วยใน
-เอาเฉพาะช่วง <CIPN>...</CIPN> แล้วต่อ CRLF — ยืนยันกับไฟล์จริงของ รพ. แล้ว
+เขียนเป็นโค้ดคือ: ตัดบรรทัดแรกออก แล้ว MD5 ทุกไบต์ที่เหลือจนถึงก่อน <?EndNote
+(ตรงกับซอร์สของโปรแกรม สกส. เอง — SQL4DataAudit_Claim.SQL ใน RCM)
+
+ต่างจากแฟ้ม OPD ตรงที่ OPD เอา "ทุกไบต์ก่อน <?EndNote" ไปเข้า MD5 ทั้งหมด
+รวมบรรทัด <?xml ...?> ด้วย ส่วนผู้ป่วยในต้องตัดบรรทัดนั้นทิ้งก่อน
+
+ข้อควรระวัง: จำนวนขึ้นบรรทัดหลัง </CIPN> ไม่เท่ากันทุกไฟล์ (พบทั้ง 1 และ 2 ครั้ง)
+จึงต้องคิดจาก "ไบต์จริงที่เหลือ" ไม่ใช่ตัดเอาเฉพาะช่วง <CIPN>...</CIPN> แล้วเติม CRLF เอง
 
 ตั้งค่าใน backend/.env (ไฟล์นี้ไม่ขึ้น git):
     AIPN_HMAC_KEY=<คีย์ของโรงพยาบาล>
@@ -96,15 +102,20 @@ def _body(head: bytes) -> bytes:
 
 
 CIPN_RE = re.compile(rb"<CIPN>.*</CIPN>", re.S)
+XML_DECL_RE = re.compile(rb"<\?xml[^>]*\?>\r?\n")
 CRLF = b"\r\n"
 
 
 def compute_cipn_md5(head: bytes) -> str:
-    """สูตรจริงของไฟล์ผู้ป่วยใน: MD5 ของ <CIPN>...</CIPN> + CRLF (ไม่ใช้คีย์)"""
-    m = CIPN_RE.search(head)
-    if not m:
+    """
+    ลายเซ็นไฟล์ผู้ป่วยใน = MD5 ของไฟล์ที่ "ตัดบรรทัด <?xml ...?> บนสุดออก"
+    และตัดตั้งแต่ <?EndNote ลงไป (head ที่ส่งเข้ามาคือส่วนก่อน <?EndNote อยู่แล้ว)
+    """
+    if not CIPN_RE.search(head):
         raise ValueError("ไม่พบ <CIPN>...</CIPN> ในไฟล์ จึงคำนวณลายเซ็นไม่ได้")
-    return hashlib.md5(m.group(0) + CRLF).hexdigest().upper()
+    m = XML_DECL_RE.match(head)
+    body = head[m.end():] if m else head
+    return hashlib.md5(body).hexdigest().upper()
 
 
 def compute(head: bytes, mode_override: str = "") -> str:
