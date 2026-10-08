@@ -81,6 +81,71 @@ def compute_totals(rows: List[List[str]]) -> Dict[str, Decimal]:
     return {"drg_charge": drg, "xdrg_claim": xdrg}
 
 
+# รายการ "ชำระส่วนเกิน" ที่ HOSxP โอนติดมาจากฝั่ง OPD — ผู้ป่วยจ่ายส่วนต่างเองแล้ว
+# ชื่อพบ 2 แบบ: "[ชำระส่วนเกิน] Blood lactate" และ "[ชำระเงิน-ส่วนเกิน] Magnesium"
+EXCESS_PREFIX_RE = re.compile(r"^\s*\[\s*ชำระ(?:เงิน)?\s*-?\s*ส่วนเกิน\s*\]\s*")
+
+
+def is_excess_row(f: List[str]) -> bool:
+    return len(f) > F_DESC and bool(EXCESS_PREFIX_RE.match(f[F_DESC]))
+
+
+def find_main_row(bill: List[List[str]], excess: List[str]) -> Optional[List[str]]:
+    """หารายการหลักของแถวส่วนเกิน: ชื่อเดียวกัน (ตัดคำนำหน้า) — วันเดียวกันก่อน"""
+    name = EXCESS_PREFIX_RE.sub("", excess[F_DESC]).strip().lower()
+    same = [f for f in bill if len(f) > F_DESC and not is_excess_row(f)
+            and f[F_DESC].strip().lower() == name]
+    same_day = [f for f in same if f[F_SERVDATE][:10] == excess[F_SERVDATE][:10]]
+    return (same_day or same or [None])[0]
+
+
+def remove_rows(raw: bytes, seqs: List[str]) -> tuple:
+    """
+    ลบแถว BillItems ตามลำดับ (seq) ที่ระบุ แล้ว
+      - เลื่อนเลขลำดับของแถวถัดไปลงให้ต่อเนื่อง (59 -> 58 ...)
+      - แก้ Reccount ของ BillItems
+    (ยอดรวม/HMAC คำนวณใหม่ใน finalize) คืน (ไบต์ใหม่, รายการที่ลบ)
+    """
+    wanted = {str(s).strip() for s in seqs if str(s).strip()}
+    if not wanted:
+        return raw, []
+    text = raw.decode(ENCODING)
+    m = _SECTION_RE["BillItems"].search(text)
+    if not m:
+        raise ValueError("ไม่พบ BillItems ในไฟล์")
+    lines = m.group(1).split("\r\n")
+    removed: List[dict] = []
+    deleted_nums: List[int] = []
+    kept: List[str] = []
+    for line in lines:
+        f = line.split("|")
+        if len(f) == BILLITEM_FIELDS and f[F_SEQ].strip() in wanted:
+            removed.append({"seq": f[F_SEQ].strip(), "desc": f[F_DESC].strip(),
+                            "charge_amt": f[F_CHARGEAMT].strip(), "claim_cat": f[F_CLAIMCAT].strip()})
+            if f[F_SEQ].strip().isdigit():
+                deleted_nums.append(int(f[F_SEQ]))
+            continue
+        kept.append(line)
+    missing = wanted - {r["seq"] for r in removed}
+    if missing:
+        raise ValueError(f"ไม่พบแถวที่ {sorted(missing)} ใน BillItems")
+
+    out_lines = []
+    for line in kept:
+        f = line.split("|")
+        if len(f) == BILLITEM_FIELDS and f[F_SEQ].strip().isdigit():
+            n = int(f[F_SEQ])
+            f[F_SEQ] = str(n - sum(1 for d in deleted_nums if d < n))
+            line = "|".join(f)
+        out_lines.append(line)
+
+    body = "\r\n".join(out_lines)
+    text = text[:m.start(1)] + body + text[m.end(1):]
+    n_rows = sum(1 for l in out_lines if len(l.split("|")) == BILLITEM_FIELDS)
+    text = re.sub(r'(<BillItems[^>]*Reccount=")\d+(")', rf"\g<1>{n_rows}\g<2>", text, count=1)
+    return text.encode(ENCODING), removed
+
+
 def _fmt(v: Decimal) -> str:
     return f"{v.quantize(Decimal('0.0001')):.4f}"
 
@@ -176,8 +241,30 @@ def validate(raw: bytes) -> dict:
             if _BAD_CHARS & set(f[idx]):
                 findings.append(_finding("30", "ERROR", f"{name} มีอักขระต้องห้าม (< > \" ' &)", where=where))
 
+        excess = is_excess_row(f)
+        # ระเบียบ กบก. IPD (เหมาจ่าย DRG): เก็บส่วนเกินได้เฉพาะค่าห้อง/อาหาร (01) และอวัยวะเทียม/อุปกรณ์ (02)
+        excess_allowed = excess and billgrcs in BILLGRCS_T
+        if excess:
+            main = find_main_row(bill, f)
+            main_note = f" (รายการหลักคือแถว {main[F_SEQ].strip()})" if main else ""
+            if excess_allowed:
+                findings.append(_finding(
+                    "ส่วนเกิน", "WARNING",
+                    f"รายการชำระส่วนเกินหมวด {billgrcs} ({f[F_DESC].strip()} {f[F_CHARGEAMT].strip()} บาท) — "
+                    "หมวดห้อง/อวัยวะเทียมที่ระเบียบให้เก็บส่วนเกินได้ ตรวจก่อนว่าควรอยู่ในไฟล์เบิกหรือไม่",
+                    where=where, suggest="ตรวจก่อนลบ" + main_note))
+            else:
+                findings.append(_finding(
+                    "ส่วนเกิน", "ERROR",
+                    f"รายการชำระส่วนเกิน ({f[F_DESC].strip()} {f[F_CHARGEAMT].strip()} บาท) — IPD เหมาจ่าย DRG "
+                    "เก็บส่วนเกินไม่ได้ (ติด C: ไม่พบ TMLT ใน Lab Catalog และยอดถูกนับเข้า DRGCharge)",
+                    where=where, suggest="ลบแถวนี้" + main_note))
+
         rows_out.append({
             "seq": seq,
+            "is_excess": excess,
+            "excess_allowed": excess_allowed,
+            "main_seq": (find_main_row(bill, f) or [""])[0].strip() if excess else "",
             "servdate": f[F_SERVDATE].strip(),
             "billgrcs": billgrcs,
             "lccode": f[F_LCCODE].strip(),

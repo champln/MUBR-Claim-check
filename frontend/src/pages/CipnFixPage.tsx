@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   FileCheck2, Upload, FileText, X, Search, Download, AlertTriangle, AlertCircle,
-  CheckCircle2, Calculator, Info,
+  CheckCircle2, Calculator, Info, Trash2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -24,11 +24,13 @@ export default function CipnFixPage() {
   const [picked, setPicked] = useState<Record<string, { cat: string; up: string }>>({})
   const [search, setSearch] = useState('')
   const [onlyFlagged, setOnlyFlagged] = useState(true)
+  const [removeSeqs, setRemoveSeqs] = useState<Record<string, boolean>>({})   // แถวชำระส่วนเกินที่จะลบ
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(accepted.slice(0, 1))
     setResult(null)
     setPicked({})
+    setRemoveSeqs({})
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -51,6 +53,9 @@ export default function CipnFixPage() {
     onSuccess: (res) => {
       setResult(res)
       setPicked({})
+      // แถวชำระส่วนเกิน: ติ๊กลบไว้ให้ก่อน (ผู้ป่วยจ่ายเองแล้ว ไม่ควรอยู่ในไฟล์เบิก)
+      // หมวด 01/02 (ห้อง/อวัยวะเทียม) ระเบียบให้เก็บส่วนเกินได้ จึงไม่ติ๊กให้ — ให้คนตรวจก่อน
+      setRemoveSeqs(Object.fromEntries(res.rows.filter(r => r.is_excess).map(r => [r.seq, !r.excess_allowed])))
       if (res.error_count === 0 && res.warning_count === 0) toast.success('ตรวจแล้วไม่พบปัญหา')
       else toast(`พบข้อผิดพลาด ${res.error_count} · คำเตือน ${res.warning_count}`, { icon: '⚠️' })
     },
@@ -58,18 +63,23 @@ export default function CipnFixPage() {
   })
 
   const applyMutation = useMutation({
-    mutationFn: () => applyCipnFix(files, changes),
+    mutationFn: () => applyCipnFix(files, changes, toRemove),
     onSuccess: (res) => {
       toast.success(
-        `แก้ ${res.applied.length} แถว · DRGCharge ${res.totals.drg_charge_calc} · XDRGClaim ${res.totals.xdrg_claim_calc} — ${res.filename}`,
+        `แก้ ${res.applied.length} แถว${res.removed.length ? ` · ลบส่วนเกิน ${res.removed.length} แถว` : ''} · DRGCharge ${res.totals.drg_charge_calc} · XDRGClaim ${res.totals.xdrg_claim_calc} — ${res.filename}`,
         { duration: 7000 })
       if (res.errorsAfter > 0) toast(`ยังเหลือข้อผิดพลาด ${res.errorsAfter} ข้อ`, { icon: '⚠️' })
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
 
+  const excessRows = (result?.rows || []).filter(r => r.is_excess)
+  const toRemove = excessRows.filter(r => removeSeqs[r.seq]).map(r => r.seq)
+  const rowBySeq = Object.fromEntries((result?.rows || []).map(r => [r.seq, r]))
+
   const q = search.trim().toLowerCase()
   const rows = (result?.rows || [])
+    .filter(r => !r.is_excess)
     .filter(r => !onlyFlagged || r.suggest_cat || picked[r.seq])
     .filter(r => !q || r.lccode.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q)
       || r.seq === q || r.billgrcs === q)
@@ -114,7 +124,7 @@ export default function CipnFixPage() {
             <FileText className="w-4 h-4 text-violet-500" />
             <span className="flex-1 truncate">{f.name}</span>
             <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
-            <button onClick={() => { setFiles([]); setResult(null); setPicked({}) }}
+            <button onClick={() => { setFiles([]); setResult(null); setPicked({}); setRemoveSeqs({}) }}
               className="text-gray-400 hover:text-rose-500"><X className="w-4 h-4" /></button>
           </div>
         ))}
@@ -127,11 +137,13 @@ export default function CipnFixPage() {
           <Search className="w-4 h-4" /> {validateMutation.isPending ? 'กำลังตรวจ...' : 'ตรวจไฟล์'}
         </button>
         <button onClick={() => applyMutation.mutate()}
-          disabled={!files.length || applyMutation.isPending || (changes.length === 0 && !totalsMismatch && result?.signature_ok !== false)}
+          disabled={!files.length || applyMutation.isPending
+            || (changes.length === 0 && toRemove.length === 0 && !totalsMismatch && result?.signature_ok !== false)}
           className="btn-primary">
           <Download className="w-4 h-4" />
           {applyMutation.isPending ? 'กำลังแก้...'
-            : changes.length ? `แก้ ${changes.length} แถว & ดาวน์โหลด`
+            : (changes.length || toRemove.length)
+              ? `แก้ ${[changes.length && `${changes.length} แถว`, toRemove.length && `ลบส่วนเกิน ${toRemove.length}`].filter(Boolean).join(' · ')} & ดาวน์โหลด`
             : 'คำนวณยอด+HMAC ใหม่ & ดาวน์โหลด'}
         </button>
         {result && (
@@ -204,6 +216,64 @@ export default function CipnFixPage() {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* รายการชำระส่วนเกิน */}
+          {excessRows.length > 0 && (
+            <div className="card overflow-hidden border-rose-200">
+              <div className="px-4 py-2.5 border-b bg-rose-50 text-sm">
+                <div className="font-semibold text-rose-800 flex items-center gap-2">
+                  <Trash2 className="w-4 h-4" /> รายการชำระส่วนเกิน ({excessRows.length}) — ควรลบออกจากไฟล์เบิก
+                </div>
+                <p className="text-xs text-gray-600 mt-1">
+                  IPD เหมาจ่าย DRG เก็บส่วนเกินไม่ได้ (ยกเว้นค่าห้อง/อาหาร และอวัยวะเทียมหมวด 02) — ส่วนเกินที่โอนติดมาจาก OPD
+                  ไม่มีรหัส TMLT จึงติด C และยอดถูกนับเข้า DRGCharge ระบบลบแถว เลื่อนเลขลำดับ แก้ Reccount และลด DRGCharge ให้
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  <b>รายการหลักคงราคาเดิม</b> — ต้องเป็นราคาตาม Lab Catalog / อัตรากรมบัญชีกลาง ห้ามเอาส่วนเกินไปบวก (ราคาเกินอัตราจะติด C เรื่องราคา)
+                  ถ้ารายการหลักราคาไม่ตรงอัตรา ให้แก้ใน HOSxP แล้วดึงไฟล์ใหม่
+                </p>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="text-xs text-gray-500 border-b">
+                  <tr>
+                    <th className="px-3 py-2 w-12">ลบ</th>
+                    <th className="px-3 py-2 text-left">ลำดับ</th>
+                    <th className="px-3 py-2 text-left">รายการส่วนเกิน</th>
+                    <th className="px-3 py-2 text-right">ยอด</th>
+                    <th className="px-3 py-2 text-left">รายการหลัก (คงไว้)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {excessRows.map(r => {
+                    const main = r.main_seq ? rowBySeq[r.main_seq] : undefined
+                    return (
+                      <tr key={r.seq} className={clsx(removeSeqs[r.seq] && 'bg-rose-50/40')}>
+                        <td className="px-3 py-2 text-center">
+                          <input type="checkbox" checked={!!removeSeqs[r.seq]}
+                            onChange={e => setRemoveSeqs(p => ({ ...p, [r.seq]: e.target.checked }))} />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-gray-500">{r.seq}</td>
+                        <td className={clsx('px-3 py-2', removeSeqs[r.seq] && 'line-through text-gray-400')}>
+                          {r.desc}
+                          {r.excess_allowed && (
+                            <span className="ml-2 text-[12px] bg-amber-100 text-amber-700 rounded-full px-2 no-underline inline-block">
+                              หมวด {r.billgrcs} ระเบียบให้เก็บส่วนเกินได้ — ตรวจก่อนลบ
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">{r.charge_amt}</td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {main
+                            ? <>แถว {main.seq} · {main.desc} · <span className="font-mono">{main.charge_amt}</span> ({main.claim_cat})</>
+                            : <span className="text-amber-600">ไม่พบรายการหลักชื่อเดียวกัน — ตรวจก่อนลบ</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
 

@@ -920,6 +920,9 @@ export interface CipnBillRow {
   claim_up: string
   claim_amt: string
   suggest_cat: string
+  is_excess?: boolean   // แถว "[ชำระส่วนเกิน] ..." ที่ต้องลบออกจากไฟล์เบิก
+  main_seq?: string     // ลำดับของรายการหลัก (ชื่อเดียวกัน)
+  excess_allowed?: boolean  // ส่วนเกินหมวด 01/02 ที่ระเบียบ IPD ให้เก็บได้ — ตรวจก่อนลบ
 }
 
 export interface CipnValidateResult {
@@ -949,15 +952,18 @@ export const validateCipn = (files: File[]) => {
   return api.post<CipnValidateResult>('/cipn-fix/validate', fd).then(r => r.data)
 }
 
-export const applyCipnFix = async (files: File[], changes: CipnChange[]) => {
+export const applyCipnFix = async (files: File[], changes: CipnChange[], removeSeqs: string[] = []) => {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
   if (changes.length) fd.append('changes', JSON.stringify(changes))
+  if (removeSeqs.length) fd.append('remove_seqs', JSON.stringify(removeSeqs))
   const res = await api.post('/cipn-fix/apply', fd, { responseType: 'blob' })
   const filename = res.headers['x-filename'] || 'CIPN.xml'
   let applied: any[] = []
   let totals: any = {}
+  let removed: any[] = []
   try { applied = JSON.parse(res.headers['x-changes'] || '[]') } catch { /* ignore */ }
+  try { removed = JSON.parse(res.headers['x-removed'] || '[]') } catch { /* ignore */ }
   try { totals = JSON.parse(res.headers['x-totals-after'] || '{}') } catch { /* ignore */ }
   const url = URL.createObjectURL(res.data)
   const a = document.createElement('a')
@@ -965,7 +971,7 @@ export const applyCipnFix = async (files: File[], changes: CipnChange[]) => {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
-  return { filename, applied, totals, errorsAfter: Number(res.headers['x-errors-after'] || 0) }
+  return { filename, applied, removed, totals, errorsAfter: Number(res.headers['x-errors-after'] || 0) }
 }
 
 // ─── แก้วันที่ปรับปรุงล่าสุด (DateRev) ในไฟล์ผู้ป่วยใน CIPN/AIPN ────────────────

@@ -5,7 +5,10 @@ API router: ตรวจและแก้ไฟล์ผู้ป่วยใ�
 และค่า HMAC ใหม่ให้ครบในครั้งเดียว (5 อย่างนี้ต้องเปลี่ยนพร้อมกัน ไม่งั้นถูกตีกลับ)
 
 - POST /cipn-fix/validate : ตรวจไฟล์ (ไม่แก้)
-- POST /cipn-fix/apply    : แก้ ClaimCat ตามที่เลือก + คำนวณใหม่ + ดาวน์โหลด
+- POST /cipn-fix/apply    : แก้ ClaimCat ตามที่เลือก / ลบแถวชำระส่วนเกิน + คำนวณใหม่ + ดาวน์โหลด
+
+แถว "[ชำระส่วนเกิน] ..." คือส่วนต่างที่ผู้ป่วยจ่ายเองแล้ว (โอนติดมาจาก OPD) — ต้องลบออกจากไฟล์เบิก
+แล้วลดยอด DRGCharge ตาม (รายการหลักคงราคาตามที่กรมบัญชีกลางกำหนด ไม่เอาส่วนเกินไปบวก)
 """
 import io
 import json
@@ -21,7 +24,7 @@ from auth import get_current_user
 from database import get_db
 from models import User, UserAuditLog
 from services.cipn_file_editor import is_cipn
-from services.cipn_validator import finalize, output_filename, set_claim_cat, validate
+from services.cipn_validator import finalize, output_filename, remove_rows, set_claim_cat, validate
 
 router = APIRouter(prefix="/cipn-fix", tags=["CIPN Validate & Fix"])
 
@@ -60,6 +63,7 @@ async def validate_file(
 async def apply_fix(
     files: List[UploadFile] = File(...),
     changes: Optional[str] = Form(None),
+    remove_seqs: Optional[str] = Form(None),      # JSON list ของลำดับแถวที่จะลบ (เช่นแถวชำระส่วนเกิน)
     update_effective_time: bool = Form(True),
     rename_output: bool = Form(True),
     db: Session = Depends(get_db),
@@ -77,14 +81,24 @@ async def apply_fix(
             raise HTTPException(400, "changes ต้องเป็น list ของ {seq, claim_cat, claim_up}")
         parsed = data
 
-    before = validate(raw)
-    out, applied = raw, []
-    if parsed:
+    to_remove: List[str] = []
+    if remove_seqs:
         try:
-            out, applied = set_claim_cat(raw, parsed)
-        except ValueError as e:
-            raise HTTPException(422, str(e))
-    elif before["error_count"] == 0:
+            to_remove = [str(x) for x in json.loads(remove_seqs)]
+        except Exception as e:
+            raise HTTPException(400, f"remove_seqs ไม่ถูกต้อง: {e}")
+
+    before = validate(raw)
+    out, applied, removed = raw, [], []
+    try:
+        # แก้ ClaimCat ก่อน (อ้างลำดับแถวเดิม) แล้วค่อยลบแถว ซึ่งจะเลื่อนเลขลำดับ
+        if parsed:
+            out, applied = set_claim_cat(out, parsed)
+        if to_remove:
+            out, removed = remove_rows(out, to_remove)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if not parsed and not to_remove and before["error_count"] == 0:
         raise HTTPException(422, "ไฟล์นี้ตรวจแล้วไม่พบข้อผิดพลาด และยังไม่ได้เลือกแถวที่จะแก้")
 
     now = datetime.now()
@@ -98,6 +112,7 @@ async def apply_fix(
         detail=json.dumps({
             "file": name,
             "changes": [{"seq": a["seq"], "before": a["before"], "after": a["after"]} for a in applied],
+            "removed": [{"seq": r["seq"], "charge_amt": r["charge_amt"]} for r in removed],
             "totals_before": before["totals"],
             "totals_after": after["totals"],
         }, ensure_ascii=False),
@@ -111,8 +126,9 @@ async def apply_fix(
         # HTTP header ส่งได้เฉพาะ latin-1 — ชื่อรายการเป็นภาษาไทยจึงต้อง escape
         # (ฝั่งหน้าเว็บ JSON.parse คืนข้อความไทยกลับมาเหมือนเดิม)
         "X-Changes": json.dumps(applied, ensure_ascii=True),
+        "X-Removed": json.dumps(removed, ensure_ascii=True),
         "X-Totals-After": json.dumps(after["totals"], ensure_ascii=True),
         "X-Errors-After": str(after["error_count"]),
-        "Access-Control-Expose-Headers": "X-Filename, X-Changes, X-Totals-After, X-Errors-After",
+        "Access-Control-Expose-Headers": "X-Filename, X-Changes, X-Removed, X-Totals-After, X-Errors-After",
     }
     return StreamingResponse(io.BytesIO(out), media_type="application/xml", headers=headers)
