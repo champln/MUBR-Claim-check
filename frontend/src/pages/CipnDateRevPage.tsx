@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { previewDateRev, applyDateRev, type DateRevPreview } from '../lib/api'
+import { formatDateInput, DATE_INPUT_PROPS } from '../lib/dateInput'
 
 export default function CipnDateRevPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -169,7 +170,7 @@ export default function CipnDateRevPage() {
             <div className="px-4 py-2.5 bg-rose-50/60 border-b flex flex-wrap items-center gap-2 text-sm">
               <Wand2 className="w-4 h-4 text-rose-600" />
               <span className="text-gray-700">ใส่วันที่เดียวกันให้ทุกแถวที่น่าสงสัย:</span>
-              <input value={bulkDate} onChange={e => setBulkDate(e.target.value)} placeholder="YYYY-MM-DD"
+              <input value={bulkDate} onChange={e => setBulkDate(formatDateInput(e.target.value))} {...DATE_INPUT_PROPS}
                 className="border border-gray-300 rounded-lg px-3 py-1 text-sm font-mono w-40" />
               <button onClick={applyBulk} disabled={!bulkDate.trim()} className="btn-secondary text-xs py-1">ใส่ให้ทั้งหมด</button>
             </div>
@@ -201,8 +202,8 @@ export default function CipnDateRevPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2">
-                      <input value={rules[r.lccode] || ''} onChange={e => setRule(r.lccode, e.target.value)}
-                        placeholder="YYYY-MM-DD"
+                      <input value={rules[r.lccode] || ''} onChange={e => setRule(r.lccode, formatDateInput(e.target.value))}
+                        {...DATE_INPUT_PROPS}
                         className="border border-gray-300 rounded px-2 py-1 text-sm font-mono w-36 focus:ring-1 focus:ring-rose-400 outline-none" />
                     </td>
                   </tr>

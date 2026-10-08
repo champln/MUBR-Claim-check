@@ -9,8 +9,11 @@ from typing import Dict, List
 from services import cipn_file_editor as cipn
 from services.cipn_validator import validate as validate_cipn
 from services.aipn_signer import verify as verify_hmac
+from services.csop_file_editor import analyze as analyze_cpap
 from services.csop_file_editor import (
+    preview_claimcont_fix,
     preview_opd_fee_fix,
+    preview_sig_fix,
     preview_stdcode_fix,
     preview_svdate_fix,
     preview_total_sync,
@@ -117,6 +120,72 @@ def check_c_codes(files: Dict[str, bytes]) -> dict:
             ))
     except ValueError as e:
         skipped.append({"check": "วันที่ให้บริการ (T42)", "reason": str(e)})
+
+    # ── R24: ยาไม่มีวิธีใช้ใน BILLDISP ───────────────────────────────────────
+    try:
+        p = preview_sig_fix(files)
+        checked.append("วิธีการใช้ยา (R24)")
+        empty = [r for r in p["rows"] if r["issue"] == "EMPTY"]
+        chars = [r for r in p["rows"] if r["issue"] == "CHARS"]
+        if empty:
+            findings.append(_finding(
+                "R24", "ยาไม่มีวิธีการใช้ (sigText ว่าง)",
+                "แพทย์อาจระบุวิธีใช้แล้วแต่รหัสวิธีใช้ใน HOSxP ไม่มีข้อความ — ต้องเติมวิธีใช้ก่อนส่ง",
+                len(empty), "เติมวิธีใช้ยา", "/sig-fix", rows=empty,
+            ))
+        if chars:
+            findings.append(_finding(
+                "R24", "วิธีใช้ยามีอักขระ & < >",
+                "สกส. อ่านอักขระเหล่านี้ไม่ได้ ข้อความวิธีใช้จะหาย/ไฟล์ไม่ผ่าน — ต้องแทนเป็นคำก่อนส่ง",
+                len(chars), "เติมวิธีใช้ยา", "/sig-fix", rows=chars,
+            ))
+    except ValueError as e:
+        skipped.append({"check": "วิธีการใช้ยา (R24)", "reason": str(e)})
+
+    # ── CPAP / PSG (โครงการหยุดหายใจขณะหลับ): P02 / P05 / STCPAP / ED ────────
+    try:
+        a = analyze_cpap(files)
+        if a["cpap_visits"]:
+            checked.append("เบิก CPAP / Polysomnogram (P02/P05)")
+        probs = [{"invno": v["visit_no"], "type": v["claim_type"], **p}
+                 for v in a["cpap_visits"] for p in v["problems"]]
+        titles = {
+            "P02": "เลขกำกับการเบิก CPAP ไม่มี หรือไม่ใช่ตัวพิมพ์ใหญ่",
+            "P05": "เลข ว แพทย์ไม่ตรงกับที่ลงทะเบียนไว้",
+            "STCPAP": "เคส CPAP ไม่มี STCPAP ใน BILLTRAN.AuthCode",
+            "ED": "เคส CPAP/PSG ไม่ได้ระบุ Class = ED ใน OPServices",
+        }
+        for code, title in titles.items():
+            rows = [p for p in probs if p["code"] == code]
+            if rows:
+                findings.append(_finding(
+                    code if code.startswith("P") else f"CPAP-{code}", title,
+                    "แก้ได้ในเมนูแก้ไฟล์เบิก CPAP / PSG ตามแนวปฏิบัติ สกส. ว 214",
+                    len(rows), "CPAP / PSG", "/cpap-fix", rows=rows,
+                ))
+    except ValueError as e:
+        skipped.append({"check": "เบิก CPAP / Polysomnogram", "reason": str(e)})
+
+    # ── G04: เหตุผลการใช้ยาเป็น EF แต่มียอดเบิก ─────────────────────────────
+    try:
+        p = preview_claimcont_fix(files)
+        checked.append("เหตุผลการใช้ยา (G04)")
+        g04 = [r for r in p["rows"] if r["issue"] == "G04"]
+        inc = [r for r in p["rows"] if r["issue"] == "INCOMPLETE"]
+        if g04:
+            findings.append(_finding(
+                "G04", "เหตุผลการใช้ยาเป็น EF (ไม่เบิก) แต่มียอดเบิก",
+                "เปลี่ยนเหตุผลเป็นค่าที่แพทย์สรุป (ส่วนใหญ่ EE)",
+                len(g04), "เหตุผลการใช้ยา", "/claimcont-fix", rows=g04,
+            ))
+        if inc:
+            findings.append(_finding(
+                "G04*", "เหตุผลการใช้ยาไม่ครบ (มีแค่ E)",
+                "HOSxP ส่งเหตุผลไปไม่ครบ 2 ตัวอักษร — ควรระบุ EA–EE ให้ครบ",
+                len(inc), "เหตุผลการใช้ยา", "/claimcont-fix", severity="WARNING", rows=inc,
+            ))
+    except ValueError as e:
+        skipped.append({"check": "เหตุผลการใช้ยา (G04)", "reason": str(e)})
 
     # ── ผู้ป่วยใน: ClaimCat / ยอดรวม / โครงสร้าง (รหัส 30, 35, 36) ──────────
     for name, raw in sorted(files.items()):

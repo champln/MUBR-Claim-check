@@ -3,7 +3,7 @@ import type {
   ClaimBatch, ClaimRecord, DashboardStats, PreScreenSummary, ValidationRule
 } from '../types/claim'
 import type { ClaimFileSession, ClaimFileRecord } from '../types/claimFile'
-import type { CpapAnalyzeResult, CpapFixSession, FiscalYearCount } from '../types/cpapFix'
+import type { CpapAnalyzeResult, CpapFixSession, CpapProblem, FiscalYearCount } from '../types/cpapFix'
 import type {
   AuthUser,
   ChangePasswordRequest,
@@ -326,7 +326,7 @@ export const applyCpapFix = async (
   files: File[],
   authCodes: Record<string, string>,
   targetVisits?: string[],
-): Promise<{ changes: string[]; sessionId: string | null }> => {
+): Promise<{ changes: string[]; problems: CpapProblem[]; sessionId: string | null }> => {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
   fd.append('auth_codes', JSON.stringify(authCodes))
@@ -340,6 +340,10 @@ export const applyCpapFix = async (
   try {
     changes = JSON.parse(res.headers['x-fix-changes'] || '[]')
   } catch { /* ignore */ }
+  let problems: CpapProblem[] = []
+  try {
+    problems = JSON.parse(res.headers['x-fix-problems'] || '[]')
+  } catch { /* ignore */ }
 
   const filename = res.headers['x-zip-filename'] || 'cpap_fixed.zip'
   const url = URL.createObjectURL(res.data)
@@ -349,7 +353,22 @@ export const applyCpapFix = async (
   a.click()
   URL.revokeObjectURL(url)
 
-  return { changes, sessionId: res.headers['x-session-id'] || null }
+  return { changes, problems, sessionId: res.headers['x-session-id'] || null }
+}
+
+// แก้ไฟล์ในประวัติซ้ำด้วยกฎปัจจุบัน -> ได้ประวัติรายการใหม่ + ดาวน์โหลด
+export const refixCpapSession = async (id: number): Promise<{ changes: string[]; filename: string }> => {
+  const res = await api.post(`/cpap-fix/sessions/${id}/refix`, null, { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-zip-filename'] || 'cpap_fixed.zip'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return { changes, filename }
 }
 
 // ─── CPAP fix history ─────────────────────────────────────────────────────────
@@ -655,6 +674,153 @@ export const applyStdCodeFix = async (
     changes, filename,
   }
 }
+
+// ─── เหตุผลการใช้ยา ClaimCont ใน BILLDISP (ติด C รหัส G04) ─────────────────────
+
+export interface ClaimContRow {
+  row: number
+  issue: 'G04' | 'INCOMPLETE' | 'EF_NO_CLAIM'
+  note: string
+  disp_id: string
+  drug_code: string
+  drug_name: string
+  qty: string
+  charge_amt: string
+  reimb_amt: string
+  claim_cont: string
+  suggested: boolean
+}
+
+export interface ClaimContPreviewResult {
+  billdisp_file: string
+  g04_count: number
+  incomplete_count: number
+  other_ef_count: number
+  rows: ClaimContRow[]
+}
+
+function buildClaimContForm(files: File[], selections?: Record<number, string>): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  if (selections) fd.append('selections', JSON.stringify(selections))
+  return fd
+}
+
+export const previewClaimContFix = (files: File[]) =>
+  api.post<ClaimContPreviewResult>('/claimcont-fix/preview', buildClaimContForm(files)).then(r => r.data)
+
+export const applyClaimContFix = async (
+  files: File[],
+  selections: Record<number, string>,
+): Promise<{ changed: number; left: number; changes: string[]; filename: string }> => {
+  const res = await api.post('/claimcont-fix/apply', buildClaimContForm(files, selections), { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-filename'] || 'BILLDISP.txt'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return {
+    changed: Number(res.headers['x-claimcont-changed'] || 0),
+    left: Number(res.headers['x-claimcont-left'] || 0),
+    changes, filename,
+  }
+}
+
+// ─── เติมวิธีการใช้ยาใน BILLDISP (ติด C รหัส R24) ──────────────────────────────
+
+export interface SigRow {
+  row: number
+  issue: 'EMPTY' | 'CHARS'
+  disp_id: string
+  drug_code: string
+  drug_name: string
+  unit: string
+  qty: string
+  sig_code: string
+  has_sig_code: boolean
+  kind: string
+  current_sig_text: string
+  new_sig_text: string
+  source: string
+}
+
+export interface SigPreviewResult {
+  billdisp_file: string
+  total_count: number
+  empty_count: number
+  chars_count: number
+  fillable_count: number
+  rows: SigRow[]
+}
+
+export interface SigMapping {
+  id: number
+  key_type: 'SIG' | 'DRUG'
+  key: string
+  sig_text: string
+  description: string
+  updated_at: string | null
+}
+
+export interface SigOverride {
+  key_type: 'SIG' | 'DRUG'
+  key: string
+  sig_text: string
+  description?: string
+}
+
+function buildSigForm(
+  files: File[], overrides: SigOverride[], saveToLibrary = false, rowOverrides: Record<number, string> = {},
+): FormData {
+  const fd = new FormData()
+  files.forEach(f => fd.append('files', f))
+  const list = overrides.filter(o => o.key.trim() && o.sig_text.trim())
+  if (list.length) fd.append('overrides', JSON.stringify(list))
+  const rows = Object.fromEntries(Object.entries(rowOverrides).filter(([, v]) => v.trim()))
+  if (Object.keys(rows).length) fd.append('row_overrides', JSON.stringify(rows))
+  if (saveToLibrary) fd.append('save_to_library', 'true')
+  return fd
+}
+
+export const previewSigFix = (files: File[], overrides: SigOverride[] = []) =>
+  api.post<SigPreviewResult>('/sig-fix/preview', buildSigForm(files, overrides)).then(r => r.data)
+
+export const applySigFix = async (
+  files: File[],
+  overrides: SigOverride[] = [],
+  saveToLibrary = false,
+  rowOverrides: Record<number, string> = {},
+): Promise<{ filled: number; cleaned: number; unresolved: number; changes: string[]; filename: string }> => {
+  const res = await api.post('/sig-fix/apply', buildSigForm(files, overrides, saveToLibrary, rowOverrides), { responseType: 'blob' })
+  let changes: string[] = []
+  try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
+  const filename = res.headers['x-filename'] || 'BILLDISP.txt'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  return {
+    filled: Number(res.headers['x-sig-filled'] || 0),
+    cleaned: Number(res.headers['x-sig-cleaned'] || 0),
+    unresolved: Number(res.headers['x-sig-unresolved'] || 0),
+    changes, filename,
+  }
+}
+
+export const listSigLibrary = () =>
+  api.get<SigMapping[]>('/sig-fix/library').then(r => r.data)
+
+export const saveSigLibrary = (items: SigOverride[]) =>
+  api.post<{ saved: number; total: number }>('/sig-fix/library', items).then(r => r.data)
+
+export const deleteSigMapping = (id: number) =>
+  api.delete(`/sig-fix/library/${id}`).then(r => r.data)
 
 // ─── เติมยอดเบิกค่าบริการทั่วไป ผป.นอก (ติด C รหัส T33 / 45) ─────────────────
 

@@ -227,6 +227,48 @@ def detect_cpap_visits(billtran: CsopFile) -> List[str]:
 class CpapFixResult:
     files: Dict[str, bytes]
     changes: List[str] = field(default_factory=list)
+    problems: List[dict] = field(default_factory=list)   # ผลตรวจไฟล์หลังแก้ (ควรว่าง)
+
+
+# เลขกำกับการเบิก (SvPID) ที่ได้จากเว็บ สกส.: ตัวอักษร/ตัวเลข พิมพ์ใหญ่ทั้งหมด
+# ตัวพิมพ์เล็กทำให้ติด C P02 (ไม่พบเลขที่กำกับการเบิก CPAP ตามที่แจ้ง)
+AUTH_CODE_RE = re.compile(r"^[A-Z0-9]{4,20}$")
+
+
+def normalize_auth_code(code: str) -> str:
+    """ตัดช่องว่าง + แปลงเป็นตัวพิมพ์ใหญ่ แล้วตรวจรูปแบบ (ผิดรูปแบบ -> ValueError)"""
+    c = re.sub(r"\s+", "", code or "").upper()
+    if c and not AUTH_CODE_RE.match(c):
+        raise ValueError(f"เลขกำกับการเบิก '{code}' ไม่ถูกรูปแบบ — ต้องเป็นตัวอักษรอังกฤษ/ตัวเลข 4–20 ตัว")
+    return c
+
+
+def cpap_visit_problems(v: dict) -> List[dict]:
+    """
+    ตรวจ visit CPAP/PSG หนึ่งรายการ (จาก analyze) ตามแนวปฏิบัติ สกส. ว 214
+    คืน [{"code", "field", "current", "expected", "message"}]
+      CPAP : AuthCode=STCPAP, Class=ED, ว47988, SvPID ต้องมี (พิมพ์ใหญ่)
+      PSG  : Class=ED, ว29312, SvPID ไม่บังคับ (สกส. ยกเลิกเลขกำกับของ PSG ตั้งแต่ ก.ค. 69)
+    """
+    cur = v.get("current", {})
+    ctype = v.get("claim_type")
+    out: List[dict] = []
+
+    def add(code, fld, expected, msg):
+        out.append({"code": code, "field": fld, "current": cur.get(fld, ""), "expected": expected, "message": msg})
+
+    if ctype == CLAIM_CPAP and cur.get("authcode") != "STCPAP":
+        add("STCPAP", "authcode", "STCPAP", "BILLTRAN.AuthCode ต้องเป็น STCPAP")
+    if cur.get("class") != "ED":
+        add("ED", "class", "ED", "OPServices.Class ต้องเป็น ED (Endorser)")
+    if v.get("doctor_target") and cur.get("doctor") != v["doctor_target"]:
+        add("P05", "doctor", v["doctor_target"], f"เลข ว แพทย์ต้องเป็น {v['doctor_target']} ({v.get('doctor_name', '')})")
+    svpid = cur.get("svpid", "")
+    if ctype == CLAIM_CPAP and not svpid:
+        add("P02", "svpid", "(เลขกำกับ)", "เคส CPAP ต้องมีเลขกำกับการเบิกใน SvPID")
+    elif svpid and svpid != svpid.upper():
+        add("P02", "svpid", svpid.upper(), "เลขกำกับการเบิกต้องเป็นตัวพิมพ์ใหญ่ทั้งหมด")
+    return out
 
 
 def apply_fix(
@@ -256,6 +298,20 @@ def apply_fix(
     if target_visits is not None:
         tset = set(target_visits)
         visit_types = {v: t for v, t in visit_types.items() if v in tset}
+
+    # เลขกำกับต้องเป็นตัวพิมพ์ใหญ่เสมอ (กัน P02) + ตรวจรูปแบบ
+    auth_by_visit = {str(k).strip(): normalize_auth_code(v) for k, v in (auth_by_visit or {}).items()}
+
+    # เคส CPAP ต้องมีเลขกำกับ (กรอกมา หรือมีอยู่แล้วในไฟล์) — ไม่งั้นส่งไปก็ติด P02
+    if opsvc_name:
+        existing = {
+            r[OPSERVICES_VISIT_IDX].strip(): (r[OPSERVICES_SVPID_IDX].strip() if len(r) > OPSERVICES_SVPID_IDX else "")
+            for r in CsopFile.parse(files[opsvc_name]).section_rows("OPServices") if r
+        }
+        missing = [v for v, t in visit_types.items()
+                   if t == CLAIM_CPAP and not auth_by_visit.get(v) and not existing.get(v)]
+        if missing:
+            raise ValueError("เคส CPAP ต้องมีเลขกำกับการเบิก — ยังไม่ได้กรอก Inv " + ", ".join(sorted(missing)))
 
     cpap_visits = {v for v, t in visit_types.items() if t == CLAIM_CPAP}
     all_visits = set(visit_types)
@@ -296,6 +352,9 @@ def apply_fix(
             if doc:
                 _set_field(new, OPSERVICES_DOCTOR_IDX, doc)
             auth = auth_by_visit.get(vno, "")
+            if not auth and len(new) > OPSERVICES_SVPID_IDX:
+                # ไม่ได้กรอกใหม่ -> คงเลขเดิม แต่ทำเป็นตัวพิมพ์ใหญ่ (กัน P02)
+                auth = new[OPSERVICES_SVPID_IDX].strip().upper()
             if auth:
                 _set_field(new, OPSERVICES_SVPID_IDX, auth)
             return new
@@ -314,7 +373,13 @@ def apply_fix(
             doc = f", แพทย์={doctor_license}" if doctor_license else ""
             changes.append(f"{opsvc_name}: Class=ED ({n1} svc / {n2} dx), SvPID set{doc}")
 
-    return CpapFixResult(files=out, changes=changes)
+    # ตรวจไฟล์ที่แก้แล้วซ้ำอีกรอบ — visit ที่แก้ต้องผ่านครบทุกข้อ
+    problems: List[dict] = []
+    if not doctor_license:
+        for v in analyze(out)["cpap_visits"]:
+            if v["visit_no"] in visit_types:
+                problems += [{"visit_no": v["visit_no"], **p} for p in cpap_visit_problems(v)]
+    return CpapFixResult(files=out, changes=changes, problems=problems)
 
 
 # คงชื่อเดิมเพื่อความเข้ากันได้
@@ -1125,6 +1190,289 @@ def apply_opd_fee_fix(
     return OpdFeeFixResult(files=out, changes=changes, rows_changed=counter["n"])
 
 
+# ─── วิธีการใช้ยาใน DispensedItems (ติด C รหัส R24 : ขาดวิธีการใช้ยา) ─────────
+# ปัญหาที่พบจริงมี 2 กลุ่ม:
+#   EMPTY : "ยา" (PrdCat = 1) ที่ข้อความวิธีใช้ (sigText) ว่าง
+#           1) มีรหัสวิธีใช้ (sigCode) แต่ข้อความว่าง — รหัสนั้นใน HOSxP ไม่มีข้อความผูกไว้
+#              (เคส R24 ลำดับ 733 : 2005678)
+#           2) ไม่มีวิธีใช้เลย (sigCode = 0000000:0000000) เช่นหมอสั่งแบบ mode 2
+#   CHARS : ข้อความวิธีใช้มีอักขระ & < > (หมอพิมพ์เอง) — ฝั่ง สกส. อ่านเป็น XML
+#           ข้อความเลยหาย/ไฟล์ไม่ผ่าน ติด R24 ซ้ำแม้เติมวิธีใช้แล้ว (ตรวจทุกประเภทสินค้า)
+# ข้อความที่เติมให้ยาที่ว่างต้องมาจากผู้ใช้/คลังวิธีใช้ — ระบบไม่แต่งวิธีใช้ยาขึ้นเอง
+# ส่วนกลุ่ม CHARS ระบบเสนอข้อความที่แทนอักขระเป็นคำให้ (ผู้ใช้แก้ได้ก่อนกดแก้)
+#
+# DispensedItems: [0]DispID [1]PrdCat [2]HospDrgID [3]DrgID [4]dfsCode [5]dfsText
+#                 [6]Packsize [7]sigCode [8]sigText [9]Quantity ...
+DISPITEMS_PRDCAT_IDX = 1
+DISPITEMS_NAME_IDX = 5
+DISPITEMS_UNIT_IDX = 6
+DISPITEMS_SIGCODE_IDX = 7
+DISPITEMS_SIGTEXT_IDX = 8
+DISPITEMS_QTY_IDX = 9
+PRDCAT_DRUG = "1"
+
+SIG_ISSUE_EMPTY = "EMPTY"
+SIG_ISSUE_CHARS = "CHARS"
+SIG_FORBIDDEN_RE = re.compile(r"[&<>]")
+# คำที่ใช้แทนอักขระต้องห้าม (ลูกศร -> / <- แทนด้วย "แล้ว" ก่อน ไม่ให้กลายเป็น "มากกว่า")
+SIG_BRACKET_RE = re.compile(r"<(?![\s=-])([^<>]+?)(?<![\s-])>(?!\s*\d)")
+SIG_CHAR_WORDS = [("->", " แล้ว "), ("<-", " แล้ว "), ("&", " และ "), ("<", " น้อยกว่า "), (">", " มากกว่า ")]
+
+
+@dataclass
+class SigFixResult:
+    files: Dict[str, bytes]
+    changes: List[str] = field(default_factory=list)
+    filled: int = 0
+    cleaned: int = 0
+    unresolved: int = 0
+
+
+def has_real_sigcode(code: str) -> bool:
+    """รหัสวิธีใช้จริง (ไม่ใช่ว่าง หรือ 0000000:0000000)"""
+    code = _norm(code)
+    return bool(code) and not set(code.replace(":", "")) <= {"0"}
+
+
+def suggest_sig_text(text: str) -> str:
+    """ข้อความที่แทน & < > เป็นคำแล้ว (เป็นข้อเสนอ ผู้ใช้แก้ต่อได้)"""
+    t = text or ""
+    # <ข้อความ> ที่หมอใช้แทนวงเล็บ -> (ข้อความ)  (ไม่แตะการเทียบค่าอย่าง HR<60 / BP>140)
+    t = re.sub(r"([&<>])\1+", r"\1", t)          # << >> && ซ้อน -> ตัวเดียว
+    t = SIG_BRACKET_RE.sub(r"(\1)", t)
+    for old, new in SIG_CHAR_WORDS:
+        t = t.replace(old, new)
+    return re.sub(r"\s{2,}", " ", t).strip()
+
+
+def clean_sig_text(text: str) -> str:
+    """ตรวจข้อความวิธีใช้ก่อนเขียนลงไฟล์ — ห้ามมีตัวคั่นฟิลด์ ขึ้นบรรทัด หรือ & < >"""
+    t = (text or "").strip()
+    if "|" in t or "\r" in t or "\n" in t:
+        raise ValueError("ข้อความวิธีใช้ห้ามมีเครื่องหมาย | หรือขึ้นบรรทัดใหม่")
+    if SIG_FORBIDDEN_RE.search(t):
+        raise ValueError("ข้อความวิธีใช้ห้ามมีอักขระ & < > (ทำให้ติด R24/ไฟล์ไม่ผ่าน)")
+    try:
+        t.encode(ENCODING)
+    except UnicodeEncodeError:
+        raise ValueError("ข้อความวิธีใช้มีอักขระที่ไฟล์ส่งเบิก (windows-874) เก็บไม่ได้")
+    return t
+
+
+def _sig_targets(files: Dict[str, bytes], by_sig: Dict[str, str], by_drug: Dict[str, str]):
+    billdisp_name = _find(files, "BILLDISP")
+    if not billdisp_name:
+        raise ValueError("ไม่พบไฟล์ BILLDISP ในชุดที่อัปโหลด")
+    bd = CsopFile.parse(files[billdisp_name])
+    by_sig = {_norm(k): _norm(v) for k, v in (by_sig or {}).items() if _norm(k) and _norm(v)}
+    by_drug = {_norm(k): _norm(v) for k, v in (by_drug or {}).items() if _norm(k) and _norm(v)}
+
+    rows: List[dict] = []
+    for i, r in enumerate(bd.section_rows("DispensedItems")):
+        if len(r) <= DISPITEMS_SIGTEXT_IDX:
+            continue
+        current = _norm(r[DISPITEMS_SIGTEXT_IDX])
+        sig, drug = _norm(r[DISPITEMS_SIGCODE_IDX]), _norm(r[DISPITEMS_HOSCODE_IDX])
+        real = has_real_sigcode(sig)
+        if current and SIG_FORBIDDEN_RE.search(current):
+            issue, kind = SIG_ISSUE_CHARS, "วิธีใช้มีอักขระ & < >"
+            text, source = suggest_sig_text(current), "แทนอักขระเป็นคำ"
+        elif not current and _norm(r[DISPITEMS_PRDCAT_IDX]) == PRDCAT_DRUG:
+            issue = SIG_ISSUE_EMPTY
+            kind = "มีรหัสวิธีใช้แต่ข้อความว่าง" if real else "ไม่มีวิธีใช้"
+            text, source = "", ""
+            if real and sig in by_sig:
+                text, source = by_sig[sig], "คลังวิธีใช้ (ตามรหัสวิธีใช้)"
+            elif drug in by_drug:
+                text, source = by_drug[drug], "คลังวิธีใช้ (ตามรหัสยา)"
+        else:
+            continue
+        rows.append({
+            "row": i,
+            "issue": issue,
+            "disp_id": _norm(r[0]),
+            "drug_code": drug,
+            "drug_name": _norm(r[DISPITEMS_NAME_IDX]),
+            "unit": _norm(r[DISPITEMS_UNIT_IDX]),
+            "qty": _norm(r[DISPITEMS_QTY_IDX]) if len(r) > DISPITEMS_QTY_IDX else "",
+            "sig_code": sig,
+            "has_sig_code": real,
+            "kind": kind,
+            "current_sig_text": current,
+            "new_sig_text": text,
+            "source": source,
+        })
+    return billdisp_name, rows
+
+
+def preview_sig_fix(files: Dict[str, bytes], by_sig: Optional[Dict[str, str]] = None,
+                    by_drug: Optional[Dict[str, str]] = None) -> dict:
+    """ดูว่ายาตัวไหนขาดวิธีใช้/วิธีใช้มีอักขระต้องห้าม (ยังไม่แก้ไฟล์)"""
+    name, rows = _sig_targets(files, by_sig or {}, by_drug or {})
+    empty = [r for r in rows if r["issue"] == SIG_ISSUE_EMPTY]
+    chars = [r for r in rows if r["issue"] == SIG_ISSUE_CHARS]
+    return {
+        "billdisp_file": name,
+        "total_count": len(rows),
+        "empty_count": len(empty),
+        "chars_count": len(chars),
+        "fillable_count": sum(1 for r in empty if r["new_sig_text"]),
+        "rows": rows,
+    }
+
+
+def apply_sig_fix(files: Dict[str, bytes], by_sig: Optional[Dict[str, str]] = None,
+                  by_drug: Optional[Dict[str, str]] = None,
+                  by_row: Optional[Dict[int, str]] = None) -> SigFixResult:
+    """
+    เติม/แก้ข้อความวิธีใช้ยาใน DispensedItems แล้วเซ็น Checksum ของ BILLDISP ใหม่
+    by_row = ข้อความที่ผู้ใช้แก้เองรายแถว (ลำดับแถวใน DispensedItems) — มาก่อนคลัง/ข้อเสนอ
+    """
+    name, rows = _sig_targets(files, by_sig or {}, by_drug or {})
+    by_row = {int(k): v for k, v in (by_row or {}).items() if _norm(v)}
+    todo: Dict[int, str] = {}
+    issue_of: Dict[int, str] = {}
+    for r in rows:
+        text = by_row.get(r["row"]) or r["new_sig_text"]
+        if text:
+            todo[r["row"]] = clean_sig_text(text)
+            issue_of[r["row"]] = r["issue"]
+    if not todo:
+        raise ValueError(
+            "ไม่มีแถวที่แก้ได้ — " + (f"มียา {len(rows)} รายการที่ขาดวิธีใช้ กรุณากรอกวิธีใช้ก่อน"
+                                     if rows else "ไม่พบปัญหาวิธีใช้ยาในไฟล์นี้"))
+
+    bd = CsopFile.parse(files[name])
+    counter = {"i": -1, SIG_ISSUE_EMPTY: 0, SIG_ISSUE_CHARS: 0}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        counter["i"] += 1
+        text = todo.get(counter["i"])
+        if text is None:
+            return None
+        counter[issue_of[counter["i"]]] += 1
+        return _set_field(list(cols), DISPITEMS_SIGTEXT_IDX, text)
+
+    bd.edit_section("DispensedItems", fix)
+    out: Dict[str, bytes] = dict(files)
+    out[name] = bd.to_bytes()
+    filled, cleaned = counter[SIG_ISSUE_EMPTY], counter[SIG_ISSUE_CHARS]
+    unresolved = len(rows) - filled - cleaned
+    changes = []
+    if filled:
+        changes.append(f"{name}: เติมวิธีการใช้ยา {filled} รายการ")
+    if cleaned:
+        changes.append(f"{name}: แก้วิธีใช้ที่มีอักขระ & < > {cleaned} รายการ")
+    if unresolved:
+        changes.append(f"{name}: ยังขาดวิธีใช้อีก {unresolved} รายการ")
+    return SigFixResult(files=out, changes=changes, filled=filled, cleaned=cleaned, unresolved=unresolved)
+
+
+# ─── เหตุผลการใช้ยาใน DispensedItems (ติด C รหัส G04) ─────────────────────────
+# G04 : ระบุ claim control เป็น EF (ไม่เบิก) แต่มีการเบิกค่ายา
+# ClaimCont = DispensedItems ฟิลด์ที่ 16 (idx 15) — เหตุผลการใช้ยานอกบัญชี EA–EF
+#   EF = ผู้ป่วยแสดงความจำนงจ่ายเอง (ไม่เบิก) -> ต้องไม่มียอดเบิก (ReimbAmt, idx 13)
+# วิธีแก้ที่ศูนย์สิทธิใช้: เปลี่ยนเป็นเหตุผลที่แพทย์สรุป (ส่วนใหญ่ EE) ในไฟล์ BILLDISP
+# บางครั้ง HOSxP ส่งไปแค่ "E" ตัวเดียว (ไม่ครบ) — แสดงให้เลือกแก้ด้วย
+# ระบบไม่เดาเหตุผลเอง: เลือกแถวให้ก่อน (EF ที่มียอดเบิก / E ไม่ครบ) ค่าเริ่มต้น EE ผู้ใช้เปลี่ยนได้
+DISPITEMS_REIMB_AMT_IDX = 13
+DISPITEMS_CLAIMCONT_IDX = 15
+CLAIMCONT_CODES = ("EA", "EB", "EC", "ED", "EE", "EF")
+CLAIMCONT_DEFAULT = "EE"
+
+
+def _to_dec(s: str):
+    from decimal import Decimal, InvalidOperation
+    try:
+        return Decimal(_norm(s) or "0")
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def preview_claimcont_fix(files: Dict[str, bytes]) -> dict:
+    """หาแถวที่เหตุผลการใช้ยาเป็น EF / E (ยังไม่แก้ไฟล์)"""
+    name = _find(files, "BILLDISP")
+    if not name:
+        raise ValueError("ไม่พบไฟล์ BILLDISP ในชุดที่อัปโหลด")
+    bd = CsopFile.parse(files[name])
+    rows: List[dict] = []
+    for i, r in enumerate(bd.section_rows("DispensedItems")):
+        if len(r) <= DISPITEMS_CLAIMCONT_IDX:
+            continue
+        cc = _norm(r[DISPITEMS_CLAIMCONT_IDX]).upper()
+        if cc not in ("EF", "E"):
+            continue
+        reimb = _to_dec(r[DISPITEMS_REIMB_AMT_IDX])
+        if cc == "E":
+            issue, note = "INCOMPLETE", "เหตุผลไม่ครบ (มีแค่ E)"
+        elif reimb > 0:
+            issue, note = "G04", "EF (ไม่เบิก) แต่มียอดเบิก"
+        else:
+            issue, note = "EF_NO_CLAIM", "EF ไม่มียอดเบิก (อาจตั้งใจให้จ่ายเอง)"
+        rows.append({
+            "row": i,
+            "issue": issue,
+            "note": note,
+            "disp_id": _norm(r[0]),
+            "drug_code": _norm(r[DISPITEMS_HOSCODE_IDX]),
+            "drug_name": _norm(r[DISPITEMS_NAME_IDX]),
+            "qty": _norm(r[DISPITEMS_QTY_IDX]),
+            "charge_amt": _norm(r[11]) if len(r) > 11 else "",
+            "reimb_amt": _norm(r[DISPITEMS_REIMB_AMT_IDX]),
+            "claim_cont": _norm(r[DISPITEMS_CLAIMCONT_IDX]),
+            "suggested": issue in ("G04", "INCOMPLETE"),
+        })
+    return {
+        "billdisp_file": name,
+        "g04_count": sum(1 for r in rows if r["issue"] == "G04"),
+        "incomplete_count": sum(1 for r in rows if r["issue"] == "INCOMPLETE"),
+        "other_ef_count": sum(1 for r in rows if r["issue"] == "EF_NO_CLAIM"),
+        "rows": rows,
+    }
+
+
+def apply_claimcont_fix(files: Dict[str, bytes], selections: Dict[int, str]) -> SigFixResult:
+    """
+    เปลี่ยนเหตุผลการใช้ยา (ClaimCont) ของแถวที่เลือก แล้วเซ็น Checksum ของ BILLDISP ใหม่
+    selections = {ลำดับแถวใน DispensedItems: รหัสใหม่ EA–EE}
+    แก้ได้เฉพาะแถวที่ตอนนี้เป็น EF / E เท่านั้น
+    """
+    p = preview_claimcont_fix(files)
+    allowed = {r["row"]: r for r in p["rows"]}
+    todo: Dict[int, str] = {}
+    for k, v in (selections or {}).items():
+        row, code = int(k), _norm(v).upper()
+        if row not in allowed:
+            raise ValueError(f"แถวที่ {row + 1} ไม่ใช่แถวที่เป็น EF/E — แก้ไม่ได้")
+        if code not in CLAIMCONT_CODES or code == "EF":
+            raise ValueError(f"รหัสเหตุผล {code or '(ว่าง)'} ไม่ถูกต้อง — เลือกได้ EA, EB, EC, ED, EE")
+        todo[row] = code
+    if not todo:
+        raise ValueError("ยังไม่ได้เลือกแถวที่จะแก้")
+
+    name = p["billdisp_file"]
+    bd = CsopFile.parse(files[name])
+    counter = {"i": -1}
+
+    def fix(cols: List[str]) -> Optional[List[str]]:
+        counter["i"] += 1
+        code = todo.get(counter["i"])
+        if code is None:
+            return None
+        return _set_field(list(cols), DISPITEMS_CLAIMCONT_IDX, code)
+
+    n = bd.edit_section("DispensedItems", fix)
+    out: Dict[str, bytes] = dict(files)
+    out[name] = bd.to_bytes()
+    detail = ", ".join(f"{allowed[r]['drug_name'] or allowed[r]['drug_code']} "
+                       f"{allowed[r]['claim_cont']}→{c}" for r, c in sorted(todo.items()))
+    left = sum(1 for r in p["rows"] if r["issue"] == "G04" and r["row"] not in todo)
+    changes = [f"{name}: แก้เหตุผลการใช้ยา {n} รายการ ({detail})"]
+    if left:
+        changes.append(f"{name}: ยังเหลือ EF ที่มียอดเบิกอีก {left} รายการ")
+    return SigFixResult(files=out, changes=changes, filled=n, unresolved=left)
+
+
 # ─── แก้รหัสหัตถการใน OPServices (ติด C รหัส S19 / S41) ────────────────────────
 # S41 : Class = OP (หัตถการ) แต่ STDCode ว่าง  -> ต้องเติมรหัสหัตถการ
 # S19 : STDCode ไม่ถูกต้อง/ไม่สัมพันธ์กับ CodeSet -> ต้องแทนที่ด้วยรหัสที่ถูก
@@ -1413,6 +1761,7 @@ def analyze(files: Dict[str, bytes]) -> dict:
     bt_items_by_visit: Dict[str, List[dict]] = {}
     bt_authcode: Dict[str, str] = {}
     bt_name: Dict[str, str] = {}    # invoice no -> ชื่อผู้ป่วย (BILLTRAN field[13])
+    bt_hn: Dict[str, str] = {}      # invoice no -> HN (BILLTRAN field[6]) ใช้จับคู่เลขกำกับที่วางจาก Excel
     if billtran_name:
         bt = CsopFile.parse(files[billtran_name])
         result["pay_plan"] = bt.pay_plan
@@ -1424,6 +1773,7 @@ def analyze(files: Dict[str, bytes]) -> dict:
                 vno = row[4].strip()
                 bt_authcode[vno] = row[BILLTRAN_AUTHCODE_IDX] if len(row) > BILLTRAN_AUTHCODE_IDX else ""
                 bt_name[vno] = row[13].strip() if len(row) > 13 else ""
+                bt_hn[vno] = row[BILLTRAN_HN_IDX].strip() if len(row) > BILLTRAN_HN_IDX else ""
             # วันรับบริการตัวแทน = วันที่ใน BILLTRAN (field index 2)
             if not result["service_date"] and len(row) > 2:
                 d = (row[2] or "").strip()[:10]
@@ -1474,14 +1824,7 @@ def analyze(files: Dict[str, bytes]) -> dict:
         doctor_target = DOCTOR_BY_CLAIM.get(claim_type, "")
         doctor_name = DOCTOR_NAME_BY_CLAIM.get(claim_type, "")
 
-        # CPAP ต้องมี STCPAP ด้วย; PSG ไม่ยุ่ง BILLTRAN
-        needs = (cur_class != "ED") or (not cur_svpid) or (cur_doctor != doctor_target)
-        if claim_type == CLAIM_CPAP:
-            needs = needs or (cur_authcode != "STCPAP")
-        if needs:
-            result["needs_fix"] = True
-
-        result["cpap_visits"].append({
+        visit = {
             "visit_no": vno,                         # = invoice no. (key สำหรับจับคู่/apply)
             "invno": vno,                            # invoice no. (เช่น 249092)
             "vn": (op_info.get("ref", "") or "").strip(),  # VN จริง (เช่น 690206092115)
@@ -1490,8 +1833,14 @@ def analyze(files: Dict[str, bytes]) -> dict:
             "doctor_target": doctor_target,
             "doctor_name": doctor_name,
             "items": items,
+            "hn": bt_hn.get(vno, ""),
             "current": {"authcode": cur_authcode, "class": cur_class, "doctor": cur_doctor, "svpid": cur_svpid},
-            "needs_fix": needs,
-        })
+            "auth_required": claim_type == CLAIM_CPAP,
+        }
+        visit["problems"] = cpap_visit_problems(visit)
+        visit["needs_fix"] = bool(visit["problems"])
+        if visit["needs_fix"]:
+            result["needs_fix"] = True
+        result["cpap_visits"].append(visit)
 
     return result

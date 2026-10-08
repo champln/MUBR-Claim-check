@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    Text, ForeignKey, LargeBinary, Enum as SAEnum
+    Text, ForeignKey, LargeBinary, UniqueConstraint, Enum as SAEnum
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -392,6 +392,27 @@ class StdCodeMapping(Base):
     std_code = Column(String(50), nullable=False)
     description = Column(String(255))     # ชื่อรายการ (ไว้ให้คนอ่านออก)
     source = Column(String(30), default="MANUAL")  # MANUAL / LEARNED (เรียนรู้จากไฟล์)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class SigTextMapping(Base):
+    """
+    คลังวิธีการใช้ยา: ใช้เติมข้อความวิธีใช้ (sigText) ที่ว่างในแฟ้ม BILLDISP
+    เพื่อกัน C รหัส R24 (ขาดวิธีการใช้ยา)
+      key_type = SIG  -> key คือรหัสวิธีใช้ (sigCode) เช่น 2005678:0000000
+      key_type = DRUG -> key คือรหัสยาของ รพ. (HospDrgID) ใช้เมื่อไม่มีรหัสวิธีใช้
+    """
+    __tablename__ = "sigtext_mappings"
+    __table_args__ = (UniqueConstraint("key_type", "key", name="uq_sigtext_key"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_type = Column(String(10), nullable=False, default="SIG")
+    key = Column(String(50), nullable=False, index=True)
+    sig_text = Column(String(255), nullable=False)
+    description = Column(String(255))     # ชื่อยา (ไว้ให้คนอ่านออก)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

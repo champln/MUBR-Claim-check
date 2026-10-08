@@ -30,7 +30,19 @@ export interface CpapVisit {
   doctor_name?: string
   items: CpapBillItem[]
   current: CpapVisitCurrent
+  hn?: string
+  auth_required?: boolean      // CPAP ต้องมีเลขกำกับ, PSG ไม่บังคับ
+  problems?: CpapProblem[]
   needs_fix: boolean
+}
+
+export interface CpapProblem {
+  code: string                 // P02 / P05 / STCPAP / ED
+  field: string
+  current: string
+  expected: string
+  message: string
+  visit_no?: string
 }
 
 export interface CpapAnalyzeResult {
@@ -59,6 +71,9 @@ export interface CpapFixSession {
   files_info: string | null
   result_filename: string | null
   created_at: string
+  problem_codes?: string[]       // ผลตรวจไฟล์ที่เก็บไว้ด้วยกฎปัจจุบัน
+  problem_count?: number
+  superseded_by?: number | null  // มีประวัติที่แก้ไฟล์เดียวกันใหม่กว่าและผ่านแล้ว
 }
 
 export interface FiscalYearCount {

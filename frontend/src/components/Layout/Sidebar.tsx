@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity,
   UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt,
-  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown,
+  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown, NotebookPen, ShieldCheck,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -31,6 +31,8 @@ const GROUPS: Group[] = [
       { to: '/stdcode-fix', icon: Stethoscope, label: 'รหัสหัตถการ (S19/S41)' },
       { to: '/opd-fee-fix', icon: Receipt, label: 'ยอดค่าบริการ (A04/T33/45)' },
       { to: '/svdate-fix', icon: CalendarClock, label: 'วันที่ให้บริการ (T42)' },
+      { to: '/sig-fix', icon: NotebookPen, label: 'วิธีการใช้ยา (R24)' },
+      { to: '/claimcont-fix', icon: ShieldCheck, label: 'เหตุผลการใช้ยา (G04)' },
       { to: '/tmt-fix', icon: Pill, label: 'รหัส TMT ยา' },
       { to: '/rama-sh50', icon: HeartPulse, label: 'ปกส.รามา SH50' },
       { to: '/covid19-fix', icon: Biohazard, label: 'COVID-19' },

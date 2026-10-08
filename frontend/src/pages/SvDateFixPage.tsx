@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { CalendarClock, Upload, FileText, X, Search, Download, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { previewSvDateFix, applySvDateFix, type SvDatePreviewResult } from '../lib/api'
+import { formatDateInput, DATE_INPUT_PROPS } from '../lib/dateInput'
 
 export default function SvDateFixPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -94,8 +95,8 @@ export default function SvDateFixPage() {
         <h3 className="font-semibold text-gray-800 text-sm">2. ตั้งค่า (ปกติไม่ต้องกรอก)</h3>
         <div>
           <label className="text-[13px] text-gray-500 block mb-1">บังคับใช้วันที่นี้แทนวัน visit</label>
-          <input value={forceDate} onChange={e => { setForceDate(e.target.value); setPreview(null) }}
-            placeholder="YYYY-MM-DD"
+          <input value={forceDate} onChange={e => { setForceDate(formatDateInput(e.target.value)); setPreview(null) }}
+            {...DATE_INPUT_PROPS}
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono w-44" />
           <p className="text-[13px] text-gray-400 mt-1">
             ว่าง = ใช้วัน visit จาก BILLTRAN (แนะนำ) · ใช้ช่องนี้เฉพาะกรณีที่วัน visit เองผิด

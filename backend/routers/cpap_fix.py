@@ -8,6 +8,7 @@ API router: แก้ไฟล์ส่งเบิก CPAP / sleep test (CSOP �
 - DELETE /cpap-fix/sessions/{id}        : ลบประวัติรายการเดียว
 - GET    /cpap-fix/fiscal-years         : รายการปีงบประมาณ + จำนวน (สำหรับเคลียร์)
 - DELETE /cpap-fix/sessions?fiscal_year=2569 : เคลียร์ลบทั้งปีงบ
+- POST   /cpap-fix/sessions/{id}/refix  : แก้ไฟล์ในประวัติซ้ำด้วยกฎปัจจุบัน -> บันทึกเป็นประวัติใหม่ + ดาวน์โหลด
 """
 import io
 import json
@@ -23,7 +24,9 @@ from typing import Any
 from auth import get_current_user
 from database import get_db
 from models import CpapFixSession, User
-from services.csop_file_editor import analyze, apply_cpap_fix, thai_fiscal_year, build_zip_filename
+from services.csop_file_editor import (
+    analyze, apply_cpap_fix, build_zip_filename, cpap_visit_problems, thai_fiscal_year,
+)
 
 router = APIRouter(prefix="/cpap-fix", tags=["CPAP Claim Fix"])
 
@@ -45,6 +48,10 @@ class CpapSessionOut(BaseModel):
     files_info: Optional[str]
     result_filename: Optional[str]
     created_at: Any
+    # ผลตรวจไฟล์ที่เก็บไว้ด้วยกฎปัจจุบัน (P02 / P05 / STCPAP / ED)
+    problem_codes: List[str] = []
+    problem_count: int = 0
+    superseded_by: Optional[int] = None    # มีประวัติที่แก้ไฟล์เดียวกันใหม่กว่าและผ่านแล้ว
 
     class Config:
         from_attributes = True
@@ -137,6 +144,8 @@ async def apply_fix(
 
     try:
         result = apply_cpap_fix(contents, auth_by_visit=auth_by_visit, target_visits=visits)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     except Exception as e:
         raise HTTPException(422, f"แก้ไฟล์ไม่สำเร็จ: {e}")
 
@@ -182,9 +191,11 @@ async def apply_fix(
         "Content-Disposition": f"attachment; filename={zip_name}",
         # header ต้องเป็น ASCII (latin-1) -> ใช้ \u escapes; frontend JSON.parse ถอดกลับเป็นไทยเอง
         "X-Fix-Changes": json.dumps(result.changes),
+        # ผลตรวจไฟล์หลังแก้ (ควรเป็น []) — มีค่าแปลว่ายังมีจุดที่อาจติด C
+        "X-Fix-Problems": json.dumps(result.problems),
         "X-Session-Id": str(sess.id),
         "X-Zip-Filename": zip_name,
-        "Access-Control-Expose-Headers": "X-Fix-Changes, X-Session-Id, X-Zip-Filename",
+        "Access-Control-Expose-Headers": "X-Fix-Changes, X-Fix-Problems, X-Session-Id, X-Zip-Filename",
     }
     return StreamingResponse(io.BytesIO(result_zip), media_type="application/zip", headers=headers)
 
@@ -205,10 +216,99 @@ def list_sessions(
         q = q.filter(CpapFixSession.fiscal_year == fiscal_year)
     if claim_type:
         q = q.filter(CpapFixSession.claim_types.contains(claim_type))
-    return (
-        q.order_by(CpapFixSession.created_at.desc())
-        .offset(skip).limit(limit).all()
+    rows = q.order_by(CpapFixSession.created_at.desc()).offset(skip).limit(limit).all()
+
+    # ตรวจไฟล์ในประวัติทุกรายการด้วยกฎปัจจุบัน + หาว่ารายการไหนมีรุ่นใหม่ที่ผ่านแล้ว
+    # (เทียบกับทั้งตาราง ไม่ใช่แค่หน้าที่แสดง)
+    probs = {}
+    for sess in db.query(CpapFixSession).all():
+        probs[sess.id] = (sess.result_filename, sess.created_at, _session_problems(sess))
+    out = []
+    for sess in rows:
+        codes = sorted({p["code"] for p in probs[sess.id][2]})
+        newer_ok = [
+            sid for sid, (fname, created, pr) in probs.items()
+            if fname == sess.result_filename and sid != sess.id and not pr
+            and created and sess.created_at and created > sess.created_at
+        ]
+        item = CpapSessionOut.model_validate(sess)
+        item.problem_codes = codes
+        item.problem_count = len(probs[sess.id][2])
+        item.superseded_by = max(newer_ok) if (codes and newer_ok) else None
+        out.append(item)
+    return out
+
+
+def _stored_files(sess: CpapFixSession) -> Dict[str, bytes]:
+    with zipfile.ZipFile(io.BytesIO(sess.result_zip)) as zf:
+        return {n.split("/")[-1]: zf.read(n) for n in zf.namelist() if n.lower().endswith(".txt")}
+
+
+def _session_problems(sess: CpapFixSession) -> List[dict]:
+    if not sess.result_zip:
+        return []
+    try:
+        a = analyze(_stored_files(sess))
+    except Exception:
+        return []
+    return [{"visit_no": v["visit_no"], **p} for v in a["cpap_visits"] for p in cpap_visit_problems(v)]
+
+
+@router.post("/sessions/{session_id}/refix")
+def refix_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    แก้ไฟล์ที่เคยแก้ไว้ในประวัติซ้ำด้วยกฎปัจจุบัน (เลขกำกับตัวพิมพ์ใหญ่ / เลข ว แพทย์ / STCPAP / ED)
+    ใช้เลขกำกับเดิมในไฟล์ ไม่ต้องกรอกใหม่ — บันทึกเป็นประวัติรายการใหม่ (ของเดิมเก็บไว้เป็นหลักฐาน)
+    """
+    old = db.query(CpapFixSession).filter(CpapFixSession.id == session_id).first()
+    if not old or not old.result_zip:
+        raise HTTPException(404, "ไม่พบไฟล์ผลลัพธ์")
+    contents = _stored_files(old)
+    try:
+        result = apply_cpap_fix(contents, auth_by_visit={})
+    except ValueError as e:
+        raise HTTPException(422, f"{e} — กรุณาแก้ไฟล์นี้ใหม่จากหน้าแก้ไฟล์และกรอกเลขกำกับ")
+    if result.problems:
+        raise HTTPException(422, "แก้ซ้ำแล้วยังไม่ผ่าน: " + "; ".join(
+            f"Inv {p['visit_no']} {p['code']} {p['message']}" for p in result.problems))
+
+    info = analyze(result.files)
+    result_zip = _zip_bytes(result.files)
+    zip_name = old.result_filename or build_zip_filename(result.files)
+    changes = ([f"แก้ซ้ำจากประวัติ #{old.id} ({', '.join(sorted({p['code'] for p in _session_problems(old)})) or 'ตรวจซ้ำ'})"]
+               + result.changes)
+    sess = CpapFixSession(
+        session_name=f"{old.session_name} (แก้ซ้ำ)",
+        fiscal_year=old.fiscal_year,
+        claim_types=old.claim_types,
+        pay_plan=old.pay_plan,
+        service_date=old.service_date,
+        visit_count=old.visit_count,
+        file_count=old.file_count,
+        auth_codes=json.dumps({v["visit_no"]: v["current"]["svpid"] for v in info["cpap_visits"]}, ensure_ascii=False),
+        changes=json.dumps(changes, ensure_ascii=False),
+        visits_info=old.visits_info,
+        files_info=old.files_info,
+        result_zip=result_zip,
+        result_filename=zip_name,
+        created_by_id=current_user.id,
     )
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+
+    headers = {
+        "Content-Disposition": f"attachment; filename={zip_name}",
+        "X-Fix-Changes": json.dumps(changes),
+        "X-Session-Id": str(sess.id),
+        "X-Zip-Filename": zip_name,
+        "Access-Control-Expose-Headers": "X-Fix-Changes, X-Session-Id, X-Zip-Filename",
+    }
+    return StreamingResponse(io.BytesIO(result_zip), media_type="application/zip", headers=headers)
 
 
 @router.get("/fiscal-years", response_model=List[FiscalYearCount])
