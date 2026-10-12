@@ -151,4 +151,6 @@ def live_prescreen(
             "total_amount": round(total_amount, 2),
         },
         "records": results,
+        # กฎจากเมนูแก้ไฟล์ที่รันกับ HOSxP นี้ไม่ได้ (เช่นชื่อคอลัมน์ต่างจากมาตรฐาน)
+        "rules_skipped": records[0].get("file_rule_skipped", []) if records else [],
     }

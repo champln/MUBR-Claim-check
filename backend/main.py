@@ -18,6 +18,7 @@ from database import engine, Base
 from routers import auth, claims, prescreen, reports
 from routers import claim_files, cpap_fix, live_prescreen, covid19_fix, rama_sh50_fix, tmt_fix
 from routers import stdcode_fix, opd_fee_fix, svdate_fix, cipn_daterev, cipn_fix, sig_fix, claimcont_fix
+from routers import fix_history
 from auth import seed_default_admin
 
 # Create all tables on startup
@@ -85,6 +86,7 @@ _ROUTERS = [
     svdate_fix.router,
     sig_fix.router,
     claimcont_fix.router,
+    fix_history.router,
     cipn_daterev.router,
     cipn_fix.router,
 ]

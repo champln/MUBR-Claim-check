@@ -11,6 +11,7 @@ import {
   previewStdCodeFix, applyStdCodeFix, listStdCodeLibrary, saveStdCodeLibrary, deleteStdCodeMapping,
   type StdCodePreviewResult,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function StdCodeFixPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -381,6 +382,8 @@ export default function StdCodeFixPage() {
           </>
         )}
       </div>
+
+      <FixHistoryPanel menu="stdcode" />
     </div>
   )
 }

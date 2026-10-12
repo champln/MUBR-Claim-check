@@ -14,12 +14,12 @@ import zipfile
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models import User
+from services.fix_history import record_fix
 from services.csop_file_editor import (
     apply_svdate_fix,
     build_zip_filename,
@@ -51,15 +51,29 @@ async def _read_txt_uploads(files: List[UploadFile]) -> Dict[str, bytes]:
     return contents
 
 
+def _categories(raw: Optional[str]) -> Optional[List[str]]:
+    """หมวดค่ารักษาที่เลือก (JSON list เช่น ["3", "7"]) — ว่าง = ทุกหมวด"""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        raise HTTPException(400, f"categories ไม่ถูกต้อง: {e}")
+    if not isinstance(data, list):
+        raise HTTPException(400, "categories ต้องเป็น list ของรหัสหมวด")
+    return [str(x) for x in data]
+
+
 @router.post("/preview")
 async def preview(
     files: List[UploadFile] = File(...),
     force_date: str = Form(""),
+    categories: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
 ):
     contents = await _read_txt_uploads(files)
     try:
-        return preview_svdate_fix(contents, force_date=force_date)
+        return preview_svdate_fix(contents, force_date=force_date, categories=_categories(categories))
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -68,6 +82,7 @@ async def preview(
 async def apply(
     files: List[UploadFile] = File(...),
     force_date: str = Form(""),
+    categories: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -78,7 +93,7 @@ async def apply(
     )
     contents = await _read_txt_uploads(files)
     try:
-        result = apply_svdate_fix(contents, force_date=force_date)
+        result = apply_svdate_fix(contents, force_date=force_date, categories=_categories(categories))
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -92,7 +107,7 @@ async def apply(
     if billtran_name and len(contents) == 1 and not orig_zip_name:
         headers["Content-Disposition"] = f"attachment; filename={billtran_name}"
         headers["X-Filename"] = billtran_name
-        return StreamingResponse(
+        return record_fix(db, current_user, "svdate",
             io.BytesIO(result.files[billtran_name]),
             media_type="application/octet-stream", headers=headers,
         )
@@ -104,4 +119,4 @@ async def apply(
     zip_name = orig_zip_name or build_zip_filename(contents)
     headers["Content-Disposition"] = f"attachment; filename={zip_name}"
     headers["X-Filename"] = zip_name
-    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)
+    return record_fix(db, current_user, "svdate", io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)

@@ -11,6 +11,7 @@ import {
   previewCovid19, applyCovid19,
   type Covid19PreviewResult,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function Covid19FixPage() {
   const [txtFiles, setTxtFiles] = useState<File[]>([])
@@ -270,6 +271,8 @@ export default function Covid19FixPage() {
           </div>
         </div>
       )}
+
+      <FixHistoryPanel menu="covid19" />
     </div>
   )
 }

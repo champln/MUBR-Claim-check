@@ -18,13 +18,13 @@ import zipfile
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models import StdCodeMapping, User
+from services.fix_history import record_fix
 from services.csop_file_editor import (
     apply_stdcode_fix,
     build_zip_filename,
@@ -210,7 +210,7 @@ async def apply(
     if ops_name and len(contents) == 1 and not orig_zip_name:
         headers["Content-Disposition"] = f"attachment; filename={ops_name}"
         headers["X-Filename"] = ops_name
-        return StreamingResponse(
+        return record_fix(db, current_user, "stdcode",
             io.BytesIO(result.files[ops_name]),
             media_type="application/octet-stream", headers=headers,
         )
@@ -223,4 +223,4 @@ async def apply(
     zip_name = orig_zip_name or build_zip_filename(contents)
     headers["Content-Disposition"] = f"attachment; filename={zip_name}"
     headers["X-Filename"] = zip_name
-    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)
+    return record_fix(db, current_user, "stdcode", io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)

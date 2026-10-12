@@ -8,6 +8,7 @@ import {
   previewSigFix, applySigFix, listSigLibrary, deleteSigMapping,
   type SigPreviewResult, type SigRow, type SigOverride,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 // แถวที่ใช้รหัสวิธีใช้เดียวกัน (หรือยาตัวเดียวกันเมื่อไม่มีรหัสวิธีใช้) ใช้ข้อความเดียวกัน
 function keyOf(r: SigRow): { key_type: 'SIG' | 'DRUG'; key: string } {
@@ -321,6 +322,8 @@ export default function SigFixPage() {
           <p className="text-sm text-gray-400">ยังไม่มีรายการ — กรอกวิธีใช้ตอนแก้ไฟล์แล้วติ๊ก "บันทึกเข้าคลัง"</p>
         )}
       </div>
+
+      <FixHistoryPanel menu="sig" />
     </div>
   )
 }

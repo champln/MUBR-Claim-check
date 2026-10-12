@@ -417,3 +417,26 @@ class SigTextMapping(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class FixHistory(Base):
+    """
+    ประวัติการแก้ไฟล์ส่งเบิกของทุกเมนู (ยกเว้น CPAP ที่มีตารางของตัวเอง)
+    เก็บไฟล์ผลลัพธ์ไว้โหลดซ้ำได้ — ไฟล์มีข้อมูลผู้ป่วย จึงเก็บในฐานข้อมูลบนเซิร์ฟเวอร์ รพ. เท่านั้น
+    """
+    __tablename__ = "fix_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    menu = Column(String(40), index=True, nullable=False)   # เช่น svdate, sig, cipn-fix
+    session_name = Column(String(255), nullable=False)       # เช่น CSOP 1354 · 2026-03-02 / AN 690000132
+    fiscal_year = Column(Integer, index=True)
+    service_date = Column(String(20))
+    pay_plan = Column(String(10))
+    changes = Column(Text)                                    # JSON list ของสิ่งที่แก้
+    result_blob = Column(LargeBinary)
+    result_filename = Column(String(255))
+    media_type = Column(String(80))
+    size_bytes = Column(Integer, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)

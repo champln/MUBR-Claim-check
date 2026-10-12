@@ -1,16 +1,19 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { CalendarClock, Upload, FileText, X, Search, Download, AlertTriangle } from 'lucide-react'
+import { CalendarClock, Upload, FileText, X, Search, Download, AlertTriangle, Filter } from 'lucide-react'
 import clsx from 'clsx'
 import { previewSvDateFix, applySvDateFix, type SvDatePreviewResult } from '../lib/api'
 import { formatDateInput, DATE_INPUT_PROPS } from '../lib/dateInput'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function SvDateFixPage() {
   const [files, setFiles] = useState<File[]>([])
   const [preview, setPreview] = useState<SvDatePreviewResult | null>(null)
   const [forceDate, setForceDate] = useState('')
+  // หมวดค่ารักษาที่เลือกแก้ — null = ทุกหมวด
+  const [cats, setCats] = useState<Set<string> | null>(null)
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(prev => {
@@ -31,14 +34,28 @@ export default function SvDateFixPage() {
     mutationFn: () => previewSvDateFix(files, forceDate),
     onSuccess: (res) => {
       setPreview(res)
-      if (res.total_change_count === 0) toast('วันที่ของทุกรายการตรงกับวัน visit อยู่แล้ว', { icon: '✅' })
-      else toast.success(`จะแก้วันที่ ${res.total_change_count} รายการ`)
+      setCats(null)
+      if (res.mismatch_count === 0) toast('วันที่ของทุกรายการตรงกับวัน visit อยู่แล้ว', { icon: '✅' })
+      else toast.success(`พบวันที่ไม่ตรง ${res.mismatch_count} รายการ ใน ${res.categories.length} หมวด`)
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'ตรวจสอบไม่สำเร็จ'),
   })
 
+  const isOn = (billmu: string) => cats === null || cats.has(billmu)
+  const toggleCat = (billmu: string) => setCats(prev => {
+    const all = (preview?.categories || []).map(c => c.billmu)
+    const next = new Set(prev ?? all)
+    if (next.has(billmu)) next.delete(billmu)
+    else next.add(billmu)
+    return next.size === all.length ? null : next
+  })
+  const selectedCount = useMemo(
+    () => (preview?.rows || []).filter(r => isOn(r.billmu)).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preview, cats])
+
   const applyMutation = useMutation({
-    mutationFn: () => applySvDateFix(files, forceDate),
+    mutationFn: () => applySvDateFix(files, forceDate, cats ? [...cats] : undefined),
     onSuccess: (res) => toast.success(`แก้วันที่ ${res.rowsChanged} รายการ — ดาวน์โหลด ${res.filename}`),
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
@@ -109,8 +126,11 @@ export default function SvDateFixPage() {
         <button onClick={() => previewMutation.mutate()} disabled={!canRun || previewMutation.isPending} className="btn-secondary">
           <Search className="w-4 h-4" /> {previewMutation.isPending ? 'กำลังตรวจ...' : 'ตรวจสอบก่อนแก้ (Preview)'}
         </button>
-        <button onClick={() => applyMutation.mutate()} disabled={!canRun || applyMutation.isPending} className="btn-primary">
-          <Download className="w-4 h-4" /> {applyMutation.isPending ? 'กำลังแก้...' : 'แก้ไข & ดาวน์โหลด'}
+        <button onClick={() => applyMutation.mutate()}
+          disabled={!canRun || applyMutation.isPending || (!!preview && selectedCount === 0)} className="btn-primary">
+          <Download className="w-4 h-4" />
+          {applyMutation.isPending ? 'กำลังแก้...'
+            : preview && cats ? `แก้ ${selectedCount} รายการ (หมวดที่เลือก) & ดาวน์โหลด` : 'แก้ไข & ดาวน์โหลด'}
         </button>
         {!canRun && <span className="text-xs text-gray-400">ต้องอัปโหลดไฟล์ก่อน</span>}
       </div>
@@ -124,16 +144,45 @@ export default function SvDateFixPage() {
               {Object.keys(preview.visit_dates).length} visit ในไฟล์
             </span>
             <div className="text-center">
-              <div className="font-bold text-sky-600">{preview.total_change_count}</div>
+              <div className="font-bold text-sky-600">{selectedCount}</div>
               <div className="text-[12px] text-gray-400">รายการที่จะแก้</div>
             </div>
+            {cats && (
+              <div className="text-center">
+                <div className="font-bold text-gray-400">{preview.mismatch_count - selectedCount}</div>
+                <div className="text-[12px] text-gray-400">ไม่แก้ (หมวดที่ไม่ได้เลือก)</div>
+              </div>
+            )}
           </div>
+
+          {preview.categories.length > 0 && (
+            <div className="px-4 py-3 border-b flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500 flex items-center gap-1 mr-1">
+                <Filter className="w-3.5 h-3.5" /> หมวดค่าใช้จ่ายที่จะแก้:
+              </span>
+              {preview.categories.map(c => (
+                <button key={c.billmu} type="button" onClick={() => toggleCat(c.billmu)}
+                  title={c.name}
+                  className={clsx('text-xs rounded-full px-3 py-1 border transition-colors',
+                    isOn(c.billmu)
+                      ? 'bg-sky-600 border-sky-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-500 hover:border-sky-400')}>
+                  <b className="font-mono">{c.billmu}</b> {c.name} <span className="opacity-80">({c.count})</span>
+                </button>
+              ))}
+              <span className="ml-auto flex gap-2 text-xs">
+                <button type="button" onClick={() => setCats(null)} className="text-sky-700 hover:underline">เลือกทั้งหมด</button>
+                <button type="button" onClick={() => setCats(new Set())} className="text-gray-500 hover:underline">ไม่เลือกเลย</button>
+              </span>
+            </div>
+          )}
 
           <div className="overflow-x-auto max-h-96 overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="bg-white sticky top-0 border-b text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2 text-left">Inv.no</th>
+                  <th className="px-3 py-2 text-left">หมวด</th>
                   <th className="px-3 py-2 text-left">รายการ</th>
                   <th className="px-3 py-2 text-left">รหัส</th>
                   <th className="px-3 py-2 text-right">ยอด</th>
@@ -143,17 +192,20 @@ export default function SvDateFixPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {preview.rows.map((r, i) => (
-                  <tr key={i} className="hover:bg-sky-50/30">
+                  <tr key={i} className={clsx('hover:bg-sky-50/30', !isOn(r.billmu) && 'opacity-40')}>
                     <td className="px-3 py-2 font-mono">{r.invno}</td>
+                    <td className="px-3 py-2 font-mono" title={r.billmu_name}>{r.billmu}</td>
                     <td className="px-3 py-2 truncate max-w-xs">{r.desc}</td>
                     <td className="px-3 py-2 font-mono text-gray-500">{r.std_code}</td>
                     <td className="px-3 py-2 text-right font-mono text-gray-500">{r.amount}</td>
                     <td className="px-3 py-2 font-mono text-rose-500">{r.current_date}</td>
-                    <td className="px-3 py-2 font-mono text-sky-700 font-semibold">→ {r.visit_date}</td>
+                    <td className="px-3 py-2 font-mono text-sky-700 font-semibold">
+                      {isOn(r.billmu) ? <>→ {r.visit_date}</> : <span className="text-gray-400 font-normal">ไม่แก้</span>}
+                    </td>
                   </tr>
                 ))}
                 {preview.rows.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">ไม่มีรายการที่วันที่ไม่ตรง</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">ไม่มีรายการที่วันที่ไม่ตรง</td></tr>
                 )}
               </tbody>
             </table>
@@ -177,6 +229,8 @@ export default function SvDateFixPage() {
           )}
         </div>
       )}
+
+      <FixHistoryPanel menu="svdate" />
     </div>
   )
 }

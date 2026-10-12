@@ -8,6 +8,7 @@ import {
 import clsx from 'clsx'
 import { previewDateRev, applyDateRev, type DateRevPreview } from '../lib/api'
 import { formatDateInput, DATE_INPUT_PROPS } from '../lib/dateInput'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function CipnDateRevPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -224,6 +225,8 @@ export default function CipnDateRevPage() {
           </div>
         </div>
       )}
+
+      <FixHistoryPanel menu="cipn-daterev" />
     </div>
   )
 }

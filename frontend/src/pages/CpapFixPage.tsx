@@ -423,7 +423,7 @@ export default function CpapFixPage() {
                           type="text"
                           value={noAuth[v.visit_no] ? '' : (authCodes[v.visit_no] ?? '')}
                           onChange={e => setAuthCodes(prev => ({ ...prev, [v.visit_no]: normAuth(e.target.value) }))}
-                          placeholder={noAuth[v.visit_no] ? '— ไม่ใส่เลขกำกับ —' : (isCpap ? 'เช่น B4GFQJ' : 'เช่น L27P4S')}
+                          placeholder={noAuth[v.visit_no] ? '— ไม่ใส่เลขกำกับ —' : (isCpap ? 'เช่น AB12CD' : 'เช่น XY34EF')}
                           disabled={!!noAuth[v.visit_no]}
                           className={clsx(
                             'w-full border rounded-lg px-3 py-1.5 text-sm font-mono outline-none',

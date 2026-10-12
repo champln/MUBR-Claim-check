@@ -11,6 +11,7 @@ import {
   previewRamaSh50, applyRamaSh50,
   type RamaSh50PreviewResult,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function RamaSh50Page() {
   const [txtFiles, setTxtFiles] = useState<File[]>([])
@@ -212,6 +213,8 @@ export default function RamaSh50Page() {
           </div>
         </div>
       )}
+
+      <FixHistoryPanel menu="rama-sh50" />
     </div>
   )
 }

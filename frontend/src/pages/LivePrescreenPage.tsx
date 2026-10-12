@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Radio, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Banknote,
-  ChevronDown, ChevronRight, PlugZap, Settings as SettingsIcon, PauseCircle,
+  ChevronDown, ChevronRight, PlugZap, Settings as SettingsIcon, PauseCircle, Info,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -128,6 +128,12 @@ export default function LivePrescreenPage() {
         )}
       </div>
 
+      {data && (data.rules_skipped?.length ?? 0) > 0 && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          กฎจากเมนูแก้ไฟล์ที่ตรวจกับ HOSxP นี้ไม่ได้ (โครงสร้างตารางต่างจากมาตรฐาน): {data.rules_skipped!.join(' · ')}
+        </div>
+      )}
+
       {/* สรุปผล */}
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -241,7 +247,9 @@ function LiveRow({ r, expanded, onToggle }: { r: LivePrescreenRecord; expanded: 
                 <li key={i} className="flex items-start gap-2 text-sm">
                   {e.severity === 'ERROR'
                     ? <XCircle className="w-4 h-4 text-rose-500 mt-0.5 flex-shrink-0" />
-                    : <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />}
+                    : e.severity === 'INFO'
+                      ? <Info className="w-4 h-4 text-sky-500 mt-0.5 flex-shrink-0" />
+                      : <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />}
                   <span>
                     <span className="font-mono text-xs bg-gray-200 rounded px-1.5 py-0.5 mr-2">{e.code}</span>
                     {e.message_th}

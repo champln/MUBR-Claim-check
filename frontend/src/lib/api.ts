@@ -58,8 +58,14 @@ function normalizeDetail(detail: unknown): string | undefined {
   return String(detail)
 }
 
+// แจ้งแผงประวัติการแก้ไฟล์ให้โหลดใหม่ เมื่อเมนูไหนก็ตามสร้างไฟล์ที่แก้แล้ว (backend ส่ง X-History-Id มา)
+export const FIX_HISTORY_EVENT = 'fix-history-updated'
+
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.headers?.['x-history-id']) window.dispatchEvent(new Event(FIX_HISTORY_EVENT))
+    return response
+  },
   (error) => {
     if (error?.response?.status === 401) {
       // เซสชันหมดอายุ / token ไม่ถูกต้อง -> ล้าง session แล้วพากลับหน้า login
@@ -180,7 +186,7 @@ export interface LivePrescreenError {
   category: string
   field: string
   message_th: string
-  severity: 'ERROR' | 'WARNING'
+  severity: 'ERROR' | 'WARNING' | 'INFO'
   current_value?: string | null
 }
 
@@ -214,6 +220,7 @@ export interface LivePrescreenResult {
     total_amount: number
   }
   records: LivePrescreenRecord[]
+  rules_skipped?: string[]   // กฎจากเมนูแก้ไฟล์ที่รันกับ HOSxP นี้ไม่ได้
 }
 
 export interface LivePrescreenStatus {
@@ -936,6 +943,7 @@ export interface CipnValidateResult {
     xdrg_claim_calc: string
   }
   signature_ok: boolean | null
+  auth?: { doc: string; has_tag: boolean; auth_code: string; auth_dt: string; admit_dt: string }
   error_count: number
   warning_count: number
 }
@@ -952,16 +960,21 @@ export const validateCipn = (files: File[]) => {
   return api.post<CipnValidateResult>('/cipn-fix/validate', fd).then(r => r.data)
 }
 
-export const applyCipnFix = async (files: File[], changes: CipnChange[], removeSeqs: string[] = []) => {
+export const applyCipnFix = async (
+  files: File[], changes: CipnChange[], removeSeqs: string[] = [], authCode = '',
+) => {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
   if (changes.length) fd.append('changes', JSON.stringify(changes))
   if (removeSeqs.length) fd.append('remove_seqs', JSON.stringify(removeSeqs))
+  if (authCode.trim()) fd.append('auth_code', authCode.trim())
   const res = await api.post('/cipn-fix/apply', fd, { responseType: 'blob' })
   const filename = res.headers['x-filename'] || 'CIPN.xml'
   let applied: any[] = []
   let totals: any = {}
   let removed: any[] = []
+  let auth: any = null
+  try { auth = JSON.parse(res.headers['x-auth'] || 'null') } catch { /* ignore */ }
   try { applied = JSON.parse(res.headers['x-changes'] || '[]') } catch { /* ignore */ }
   try { removed = JSON.parse(res.headers['x-removed'] || '[]') } catch { /* ignore */ }
   try { totals = JSON.parse(res.headers['x-totals-after'] || '{}') } catch { /* ignore */ }
@@ -971,7 +984,7 @@ export const applyCipnFix = async (files: File[], changes: CipnChange[], removeS
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
-  return { filename, applied, removed, totals, errorsAfter: Number(res.headers['x-errors-after'] || 0) }
+  return { filename, applied, removed, auth, totals, errorsAfter: Number(res.headers['x-errors-after'] || 0) }
 }
 
 // ─── แก้วันที่ปรับปรุงล่าสุด (DateRev) ในไฟล์ผู้ป่วยใน CIPN/AIPN ────────────────
@@ -1112,6 +1125,9 @@ export const downloadClaimFileRaw = async (
 
 export interface SvDateRow {
   invno: string
+  billmu: string        // หมวดค่ารักษา 1-9, A-G
+  billmu_name: string
+  selected?: boolean
   desc: string
   local_code: string
   std_code: string
@@ -1123,15 +1139,19 @@ export interface SvDateRow {
 export interface SvDatePreviewResult {
   billtran_file: string
   total_change_count: number
+  mismatch_count: number
+  categories: { billmu: string; name: string; count: number }[]
   rows: SvDateRow[]
   other_mismatches: { file: string; invno: string; date: string; visit_date: string }[]
   visit_dates: Record<string, string>
 }
 
-function buildSvDateForm(files: File[], forceDate?: string): FormData {
+// categories: หมวดค่ารักษาที่จะแก้ — ว่าง/undefined = ทุกหมวด
+function buildSvDateForm(files: File[], forceDate?: string, categories?: string[]): FormData {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
   fd.append('force_date', forceDate?.trim() || '')
+  if (categories && categories.length) fd.append('categories', JSON.stringify(categories))
   return fd
 }
 
@@ -1141,8 +1161,9 @@ export const previewSvDateFix = (files: File[], forceDate?: string) =>
 export const applySvDateFix = async (
   files: File[],
   forceDate?: string,
+  categories?: string[],
 ): Promise<{ rowsChanged: number; changes: string[]; filename: string }> => {
-  const res = await api.post('/svdate-fix/apply', buildSvDateForm(files, forceDate), { responseType: 'blob' })
+  const res = await api.post('/svdate-fix/apply', buildSvDateForm(files, forceDate, categories), { responseType: 'blob' })
   let changes: string[] = []
   try { changes = JSON.parse(res.headers['x-fix-changes'] || '[]') } catch { /* ignore */ }
   const filename = res.headers['x-filename'] || 'BILLTRAN.txt'
@@ -1164,3 +1185,55 @@ export const saveStdCodeLibrary = (
 
 export const deleteStdCodeMapping = (id: number) =>
   api.delete(`/stdcode-fix/library/${id}`).then(r => r.data)
+
+// ─── ประวัติการแก้ไฟล์ของทุกเมนู (โหลดย้อนหลังได้) ─────────────────────────────
+
+export interface FixHistoryItem {
+  id: number
+  menu: string
+  menu_label: string
+  session_name: string
+  fiscal_year: number | null
+  service_date: string | null
+  pay_plan: string | null
+  changes: string[]
+  result_filename: string | null
+  size_bytes: number
+  created_at: string
+  created_by: string | null
+}
+
+export const listFixHistory = (params: { menu?: string; fiscal_year?: number | null; q?: string }) =>
+  api.get<FixHistoryItem[]>('/fix-history', {
+    params: {
+      menu: params.menu || undefined,
+      fiscal_year: params.fiscal_year ?? undefined,
+      q: params.q?.trim() || undefined,
+    },
+  }).then(r => r.data)
+
+export const listFixHistoryMenus = () =>
+  api.get<{ menu: string; label: string; count: number }[]>('/fix-history/menus').then(r => r.data)
+
+export const listFixHistoryFiscalYears = (menu?: string) =>
+  api.get<{ fiscal_year: number | null; count: number }[]>('/fix-history/fiscal-years', {
+    params: { menu: menu || undefined },
+  }).then(r => r.data)
+
+export const downloadFixHistory = async (id: number, fallbackName: string) => {
+  const res = await api.get(`/fix-history/${id}/download`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = res.headers['x-filename'] || fallbackName
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export const deleteFixHistory = (id: number) =>
+  api.delete(`/fix-history/${id}`).then(r => r.data)
+
+export const clearFixHistory = (fiscalYear: number, menu?: string) =>
+  api.delete<{ message: string; deleted: number }>('/fix-history', {
+    params: { fiscal_year: fiscalYear, menu: menu || undefined },
+  }).then(r => r.data)

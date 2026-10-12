@@ -19,7 +19,7 @@ from models import (
 )
 from services.claim_file_parser import parse_claim_files, detect_fund_type_from_content
 from services.claim_file_validator import validate_claim_records
-from services.c_code_checker import check_c_codes
+from services.c_code_checker import check_c_codes, issues_by_visit
 from services.raw_row_editor import apply_edits, read_sections
 
 router = APIRouter(prefix="/claim-files", tags=["Claim File Check"])
@@ -97,6 +97,26 @@ def _visit_month(value: str):
     if not 1 <= mo <= 12:
         return None
     return (y if y > 2400 else y + 543), mo
+
+
+def _merge_fix_rules(records: List[dict], contents: dict) -> None:
+    """
+    เอากฎของทุกเมนูแก้ไฟล์ (R24, G04, T42, S41, T33/45, A04, P02/P05, Checksum, ผู้ป่วยใน ฯลฯ)
+    มาตรวจตอนอัปโหลดด้วย แล้วผูกปัญหาเข้ากับ visit (InvNo/AN) — ปัญหาระดับทั้งชุด
+    (เช่น Checksum ผิด ทำให้ทั้งไฟล์ถูกตีกลับ) ใส่ให้ทุก visit
+    ตรวจไม่ได้ก็ข้ามไป ไม่ให้การอัปโหลดล้ม
+    """
+    try:
+        by_visit, batch = issues_by_visit(contents)
+    except Exception:
+        return
+    for rec in records:
+        extra = by_visit.get(str(rec.get("visit_no") or "").strip(), []) + batch
+        if not extra:
+            continue
+        rec["issues"] = list(rec.get("issues") or []) + extra
+        rec["has_error"] = any(i["severity"] == "ERROR" for i in rec["issues"])
+        rec["has_warning"] = any(i["severity"] == "WARNING" for i in rec["issues"])
 
 
 @router.post("/inspect")
@@ -211,6 +231,7 @@ async def upload_claim_files(
 
     # Validate
     validated = validate_claim_records(raw_records, fund_type)
+    _merge_fix_rules(validated, contents)
 
     # Create session
     session = ClaimFileSession(

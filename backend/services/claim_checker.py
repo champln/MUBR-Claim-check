@@ -358,6 +358,18 @@ def run_prescreen(record: dict, custom_rules: list = None) -> tuple[list[CheckEr
         rule_errors = _apply_custom_rule(record, rule)
         errors.extend(rule_errors)
 
+    # ── กฎจากเมนูแก้ไฟล์ส่งเบิก (R24 / T42 / P05 ...) — Pre-screen สดคำนวณมาจากรายการใน HOSxP ──
+    for i in record.get("file_rule_issues") or []:
+        errors.append(CheckError(
+            error_code=i["code"],
+            error_category=i.get("category", "FILE"),
+            error_field=i.get("field", ""),
+            error_message=i.get("message_th", ""),
+            error_message_th=i.get("message_th", ""),
+            severity=i.get("severity", "WARNING"),
+            current_value=i.get("current_value"),
+        ))
+
     return errors, is_flagged_c, flag_reason
 
 

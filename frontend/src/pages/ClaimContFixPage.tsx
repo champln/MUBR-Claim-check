@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { ShieldCheck, Upload, FileText, X, Search, Download } from 'lucide-react'
 import clsx from 'clsx'
 import { previewClaimContFix, applyClaimContFix, type ClaimContPreviewResult } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 // เหตุผลการใช้ยานอกบัญชียาหลัก (EF = จ่ายเอง ไม่เบิก จึงไม่อยู่ในตัวเลือก)
 const CODES: { code: string; label: string }[] = [
@@ -207,6 +208,8 @@ export default function ClaimContFixPage() {
           )}
         </div>
       )}
+
+      <FixHistoryPanel menu="claimcont" />
     </div>
   )
 }

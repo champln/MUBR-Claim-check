@@ -27,6 +27,7 @@ import OpdFeeFixPage from './pages/OpdFeeFixPage'
 import SvDateFixPage from './pages/SvDateFixPage'
 import SigFixPage from './pages/SigFixPage'
 import ClaimContFixPage from './pages/ClaimContFixPage'
+import FixHistoryPage from './pages/FixHistoryPage'
 import CipnDateRevPage from './pages/CipnDateRevPage'
 import CipnFixPage from './pages/CipnFixPage'
 import HelpPage from './pages/HelpPage'
@@ -79,6 +80,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route path="/svdate-fix" element={<SvDateFixPage />} />
             <Route path="/sig-fix" element={<SigFixPage />} />
             <Route path="/claimcont-fix" element={<ClaimContFixPage />} />
+            <Route path="/fix-history" element={<FixHistoryPage />} />
             <Route path="/cipn-daterev" element={<CipnDateRevPage />} />
             <Route path="/cipn-fix" element={<CipnFixPage />} />
             <Route path="/help" element={<HelpPage />} />

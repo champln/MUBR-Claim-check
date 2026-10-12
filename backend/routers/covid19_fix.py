@@ -17,12 +17,12 @@ import zipfile
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models import User
+from services.fix_history import record_fix
 from services.csop_file_editor import (
     apply_covid19,
     build_zip_filename,
@@ -190,7 +190,7 @@ async def apply(
         headers["Content-Disposition"] = f"attachment; filename={out_name}"
         headers["X-Filename"] = out_name
         # octet-stream: ส่ง byte ดิบ (windows-874) โดยไม่ให้ browser ตีความ charset
-        return StreamingResponse(
+        return record_fix(db, current_user, "covid19",
             io.BytesIO(changed_files[billtran_name]),
             media_type="application/octet-stream",
             headers=headers,
@@ -203,4 +203,4 @@ async def apply(
     zip_name = build_zip_filename(contents).replace(".zip", "_COV19.zip")
     headers["Content-Disposition"] = f"attachment; filename={zip_name}"
     headers["X-Filename"] = zip_name
-    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)
+    return record_fix(db, current_user, "covid19", io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)

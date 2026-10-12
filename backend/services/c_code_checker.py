@@ -4,11 +4,12 @@
 ใช้ตรรกะตัวเดียวกับเมนูแก้เฉพาะเคส เพื่อไม่ให้ผลตรวจกับผลแก้ขัดกันเอง
 — ที่นี่เรียกเฉพาะฟังก์ชัน preview_* จึงไม่แตะไฟล์
 """
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from services import cipn_file_editor as cipn
 from services.cipn_validator import validate as validate_cipn
 from services.aipn_signer import verify as verify_hmac
+from services.csop_file_editor import CsopFile
 from services.csop_file_editor import analyze as analyze_cpap
 from services.csop_file_editor import (
     preview_claimcont_fix,
@@ -31,11 +32,11 @@ def _finding(code: str, title: str, detail: str, count: int, menu: str, to: str,
         "menu": menu,
         "to": to,
         "severity": severity,
-        "rows": (rows or [])[:20],
+        "rows": list(rows or []),
     }
 
 
-def check_c_codes(files: Dict[str, bytes]) -> dict:
+def check_c_codes(files: Dict[str, bytes], row_limit: Optional[int] = 20) -> dict:
     """คืนรายการเงื่อนไขติด C ที่พบในชุดไฟล์ พร้อมเมนูที่ใช้แก้"""
     findings: List[dict] = []
     checked: List[str] = []
@@ -230,6 +231,9 @@ def check_c_codes(files: Dict[str, bytes]) -> dict:
                 severity="WARNING", rows=[r for r in p["rows"] if r["suspect"]],
             ))
 
+    if row_limit is not None:
+        for f in findings:
+            f["rows"] = f["rows"][:row_limit]
     return {
         "files": sorted(files),
         "findings": findings,
@@ -238,3 +242,51 @@ def check_c_codes(files: Dict[str, bytes]) -> dict:
         "checked": checked,
         "skipped": skipped,
     }
+
+
+def _disp_to_invno(files: Dict[str, bytes]) -> Dict[str, str]:
+    """BILLDISP: DispID -> InvNo (Dispensing ฟิลด์ 2 / 3) ใช้ผูกปัญหาระดับรายการยาเข้ากับ visit"""
+    out: Dict[str, str] = {}
+    for name, raw in files.items():
+        if "BILLDISP" not in name.upper():
+            continue
+        try:
+            rows = CsopFile.parse(raw).section_rows("Dispensing")
+        except ValueError:
+            continue
+        for r in rows:
+            if len(r) > 2 and r[1].strip():
+                out[r[1].strip()] = r[2].strip()
+    return out
+
+
+def issues_by_visit(files: Dict[str, bytes]) -> Tuple[Dict[str, List[dict]], List[dict]]:
+    """
+    รันกฎทุกเมนูแก้ไฟล์ (เหมือน "ตรวจ C รวม") แล้วแตกผลเป็นรายการปัญหาต่อ visit
+    คืน ({InvNo/AN: [issue]}, [issue ระดับทั้งชุดที่ผูก visit ไม่ได้ เช่น Checksum])
+    issue ใช้รูปแบบเดียวกับ claim_file_validator: {code, field, message, severity}
+    field = path เมนูที่ใช้แก้ (หน้าเว็บทำลิงก์ไปได้)
+    """
+    res = check_c_codes(files, row_limit=None)
+    disp = _disp_to_invno(files)
+    by_visit: Dict[str, List[dict]] = {}
+    batch: List[dict] = []
+    for f in res["findings"]:
+        issue = {
+            "code": f"C-{f['code']}",
+            "field": f["to"],
+            "message": f"{f['title']} — แก้ที่เมนู{f['menu']}",
+            "severity": "ERROR" if f["severity"] == "ERROR" else "WARNING",
+        }
+        visits = set()
+        for r in f["rows"]:
+            inv = r.get("invno") or r.get("visit_no") or disp.get(str(r.get("disp_id", "")).strip())
+            if inv:
+                visits.add(str(inv).strip())
+        if not visits:
+            batch.append(issue)
+            continue
+        for v in visits:
+            if issue not in by_visit.setdefault(v, []):
+                by_visit[v].append(issue)
+    return by_visit, batch

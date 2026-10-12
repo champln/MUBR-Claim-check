@@ -4,13 +4,18 @@ import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   FileCheck2, Upload, FileText, X, Search, Download, AlertTriangle, AlertCircle,
-  CheckCircle2, Calculator, Info, Trash2,
+  CheckCircle2, Calculator, Info, Trash2, KeyRound,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
   validateCipn, applyCipnFix,
   type CipnValidateResult, type CipnChange,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
+
+// เลขอนุมัตินอนโรงพยาบาลจากเว็บ สกส. — ตัวอักษรอังกฤษพิมพ์ใหญ่/ตัวเลข (เช่น AB12CD)
+const AUTH_RE = /^[A-Z0-9]{4,20}$/
+const normAuth = (s: string) => s.replace(/\s+/g, '').toUpperCase()
 
 const CAT_LABEL: Record<string, string> = {
   T: 'T — เบิกแยกนอก DRG',
@@ -25,12 +30,14 @@ export default function CipnFixPage() {
   const [search, setSearch] = useState('')
   const [onlyFlagged, setOnlyFlagged] = useState(true)
   const [removeSeqs, setRemoveSeqs] = useState<Record<string, boolean>>({})   // แถวชำระส่วนเกินที่จะลบ
+  const [authCode, setAuthCode] = useState('')   // เลขอนุมัติใหม่ (ว่าง = ไม่แก้)
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(accepted.slice(0, 1))
     setResult(null)
     setPicked({})
     setRemoveSeqs({})
+    setAuthCode('')
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -53,6 +60,7 @@ export default function CipnFixPage() {
     onSuccess: (res) => {
       setResult(res)
       setPicked({})
+      setAuthCode('')
       // แถวชำระส่วนเกิน: ติ๊กลบไว้ให้ก่อน (ผู้ป่วยจ่ายเองแล้ว ไม่ควรอยู่ในไฟล์เบิก)
       // หมวด 01/02 (ห้อง/อวัยวะเทียม) ระเบียบให้เก็บส่วนเกินได้ จึงไม่ติ๊กให้ — ให้คนตรวจก่อน
       setRemoveSeqs(Object.fromEntries(res.rows.filter(r => r.is_excess).map(r => [r.seq, !r.excess_allowed])))
@@ -63,15 +71,18 @@ export default function CipnFixPage() {
   })
 
   const applyMutation = useMutation({
-    mutationFn: () => applyCipnFix(files, changes, toRemove),
+    mutationFn: () => applyCipnFix(files, changes, toRemove, authToSend),
     onSuccess: (res) => {
       toast.success(
-        `แก้ ${res.applied.length} แถว${res.removed.length ? ` · ลบส่วนเกิน ${res.removed.length} แถว` : ''} · DRGCharge ${res.totals.drg_charge_calc} · XDRGClaim ${res.totals.xdrg_claim_calc} — ${res.filename}`,
+        `แก้ ${res.applied.length} แถว${res.removed.length ? ` · ลบส่วนเกิน ${res.removed.length} แถว` : ''}${res.auth ? ` · AuthCode ${res.auth.after.auth_code}` : ''} · DRGCharge ${res.totals.drg_charge_calc} · XDRGClaim ${res.totals.xdrg_claim_calc} — ${res.filename}`,
         { duration: 7000 })
       if (res.errorsAfter > 0) toast(`ยังเหลือข้อผิดพลาด ${res.errorsAfter} ข้อ`, { icon: '⚠️' })
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'แก้ไฟล์ไม่สำเร็จ'),
   })
+
+  const authInvalid = !!authCode && !AUTH_RE.test(authCode)
+  const authToSend = authCode && !authInvalid && authCode !== result?.auth?.auth_code ? authCode : ''
 
   const excessRows = (result?.rows || []).filter(r => r.is_excess)
   const toRemove = excessRows.filter(r => removeSeqs[r.seq]).map(r => r.seq)
@@ -124,7 +135,7 @@ export default function CipnFixPage() {
             <FileText className="w-4 h-4 text-violet-500" />
             <span className="flex-1 truncate">{f.name}</span>
             <span className="text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
-            <button onClick={() => { setFiles([]); setResult(null); setPicked({}); setRemoveSeqs({}) }}
+            <button onClick={() => { setFiles([]); setResult(null); setPicked({}); setRemoveSeqs({}); setAuthCode('') }}
               className="text-gray-400 hover:text-rose-500"><X className="w-4 h-4" /></button>
           </div>
         ))}
@@ -137,13 +148,13 @@ export default function CipnFixPage() {
           <Search className="w-4 h-4" /> {validateMutation.isPending ? 'กำลังตรวจ...' : 'ตรวจไฟล์'}
         </button>
         <button onClick={() => applyMutation.mutate()}
-          disabled={!files.length || applyMutation.isPending
-            || (changes.length === 0 && toRemove.length === 0 && !totalsMismatch && result?.signature_ok !== false)}
+          disabled={!files.length || applyMutation.isPending || authInvalid
+            || (changes.length === 0 && toRemove.length === 0 && !authToSend && !totalsMismatch && result?.signature_ok !== false)}
           className="btn-primary">
           <Download className="w-4 h-4" />
           {applyMutation.isPending ? 'กำลังแก้...'
-            : (changes.length || toRemove.length)
-              ? `แก้ ${[changes.length && `${changes.length} แถว`, toRemove.length && `ลบส่วนเกิน ${toRemove.length}`].filter(Boolean).join(' · ')} & ดาวน์โหลด`
+            : (changes.length || toRemove.length || authToSend)
+              ? `แก้ ${[changes.length && `${changes.length} แถว`, toRemove.length && `ลบส่วนเกิน ${toRemove.length}`, authToSend && 'AuthCode'].filter(Boolean).join(' · ')} & ดาวน์โหลด`
             : 'คำนวณยอด+HMAC ใหม่ & ดาวน์โหลด'}
         </button>
         {result && (
@@ -164,6 +175,43 @@ export default function CipnFixPage() {
             <SummaryBox label="ค่า HMAC" value={result.signature_ok ? 'ถูกต้อง' : 'ไม่ตรง'}
               tone={result.signature_ok ? 'emerald' : 'rose'} icon={<CheckCircle2 className="w-4 h-4" />} />
           </div>
+
+          {/* เลขอนุมัตินอนโรงพยาบาล */}
+          {result.auth?.has_tag && (
+            <div className={clsx('card p-4', !result.auth.auth_code && result.auth.doc === 'CIPN' && 'border-rose-200')}>
+              <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2 mb-3">
+                <KeyRound className="w-4 h-4 text-violet-600" /> เลขอนุมัตินอนโรงพยาบาล (AuthCode)
+                {!result.auth.auth_code && (
+                  <span className={clsx('text-xs font-normal rounded-full px-2',
+                    result.auth.doc === 'CIPN' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>
+                    ว่าง — {result.auth.doc === 'CIPN' ? 'ส่งไปจะติด 31: empty AuthCode' : 'ตรวจว่าสิทธินี้ต้องใช้เลขอนุมัติหรือไม่'}
+                  </span>
+                )}
+              </h3>
+              <div className="flex flex-wrap items-end gap-6 text-sm">
+                <div>
+                  <div className="text-xs text-gray-500">AuthCode ในไฟล์</div>
+                  <div className="font-mono font-semibold">{result.auth.auth_code || '(ว่าง)'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">AuthDT</div>
+                  <div className="font-mono text-gray-600">{result.auth.auth_dt || '(ว่าง)'}</div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">แก้เป็น</label>
+                  <input value={authCode} onChange={e => setAuthCode(normAuth(e.target.value))}
+                    placeholder="เช่น AB12CD" maxLength={20}
+                    className={clsx('border rounded-lg px-3 py-1.5 text-sm font-mono w-40 outline-none',
+                      authInvalid ? 'border-rose-400 bg-rose-50' : 'border-gray-300 focus:ring-2 focus:ring-violet-300')} />
+                </div>
+                <p className="text-xs text-gray-500 flex-1 min-w-[16rem]">
+                  กรอกเลขอนุมัตินอนโรงพยาบาลจากเว็บ สกส. — ระบบแปลงเป็นตัวพิมพ์ใหญ่ให้
+                  {!result.auth.auth_dt && result.auth.admit_dt && <> · AuthDT ว่างอยู่ จะใช้วันเวลา admit ({result.auth.admit_dt})</>}
+                  {authInvalid && <span className="block text-rose-600">ต้องเป็นตัวอักษรอังกฤษ/ตัวเลข 4–20 ตัว</span>}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* ยอดรวม */}
           <div className="card p-4">
@@ -365,6 +413,8 @@ export default function CipnFixPage() {
           </div>
         </>
       )}
+
+      <FixHistoryPanel menu="cipn-fix" />
     </div>
   )
 }

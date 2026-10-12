@@ -14,12 +14,12 @@ import zipfile
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models import User
+from services.fix_history import record_fix
 from services.aipn_signer import config_summary, verify as verify_signature
 from services.cipn_file_editor import apply_daterev, is_cipn, preview_daterev
 
@@ -110,4 +110,4 @@ async def apply(
         "X-Filename": name,
         "Access-Control-Expose-Headers": "X-Filename, X-Sign-Mode",
     }
-    return StreamingResponse(io.BytesIO(out), media_type="application/xml", headers=headers)
+    return record_fix(db, current_user, "cipn-daterev", io.BytesIO(out), media_type="application/xml", headers=headers)

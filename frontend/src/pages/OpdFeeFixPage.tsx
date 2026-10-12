@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { Receipt, Upload, FileText, X, Search, Download } from 'lucide-react'
 import clsx from 'clsx'
 import { previewOpdFeeFix, applyOpdFeeFix, type OpdFeePreviewResult } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 export default function OpdFeeFixPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -238,6 +239,8 @@ export default function OpdFeeFixPage() {
           )}
         </div>
       )}
+
+      <FixHistoryPanel menu="opd-fee" />
     </div>
   )
 }

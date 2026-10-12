@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity,
   UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt,
-  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown, NotebookPen, ShieldCheck,
+  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown, NotebookPen, ShieldCheck, History,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -22,6 +22,7 @@ const GROUPS: Group[] = [
       { to: '/live-prescreen', icon: Radio, label: 'Pre-screen สด' },
       { to: '/batches', icon: ClipboardList, label: 'รายการส่งเบิก' },
       { to: '/claim-files', icon: FileSearch, label: 'ตรวจไฟล์ส่งเบิก' },
+      { to: '/fix-history', icon: History, label: 'ประวัติการแก้ไฟล์' },
     ],
   },
   {
@@ -43,7 +44,7 @@ const GROUPS: Group[] = [
     title: 'แก้ไฟล์ผู้ป่วยใน',
     note: 'CIPN · AIPN (.xml)',
     items: [
-      { to: '/cipn-fix', icon: FileCheck2, label: 'ClaimCat และยอดรวม (30/35/36)' },
+      { to: '/cipn-fix', icon: FileCheck2, label: 'ClaimCat ยอดรวม AuthCode (30/31/35/36)' },
       { to: '/cipn-daterev', icon: CalendarCheck, label: 'DateRev และค่า HMAC (22)' },
     ],
   },

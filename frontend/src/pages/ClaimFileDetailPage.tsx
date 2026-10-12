@@ -520,8 +520,10 @@ function RecordRow({
                   }
                   <span>
                     <strong className="font-semibold">[{issue.code}]</strong>{' '}
-                    {issue.field && <span className="opacity-70">{issue.field}: </span>}
-                    {issue.message}
+                    {/* ปัญหาจากกฎเมนูแก้ไฟล์ (C-xxx): field คือ path ของเมนูที่ใช้แก้ */}
+                    {issue.field?.startsWith('/')
+                      ? <>{issue.message} <Link to={issue.field} className="underline font-medium">ไปแก้</Link></>
+                      : <>{issue.field && <span className="opacity-70">{issue.field}: </span>}{issue.message}</>}
                   </span>
                 </div>
               ))}

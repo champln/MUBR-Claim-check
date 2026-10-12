@@ -99,6 +99,78 @@ def find_main_row(bill: List[List[str]], excess: List[str]) -> Optional[List[str
     return (same_day or same or [None])[0]
 
 
+# เลขอนุมัตินอนโรงพยาบาล (ClaimAuth/AuthCode) จากเว็บ สกส. เช่น AB12CD (6 ตัว)
+# ว่าง -> สกส. ตีกลับ 31 "11: empty AuthCode" (AN 660000010) — ต้องเป็นตัวพิมพ์ใหญ่
+AUTH_CODE_RE = re.compile(r"^[A-Z0-9]{4,20}$")
+
+
+def read_auth(raw: bytes) -> dict:
+    """อ่าน AuthCode / AuthDT และวันเวลาที่ admit (IPADT ฟิลด์ 15) เพื่อใช้เทียบ"""
+    text = raw.decode(ENCODING, "replace")
+    code = re.search(r"<AuthCode>([^<]*)</AuthCode>", text)
+    dt = re.search(r"<AuthDT>([^<]*)</AuthDT>", text)
+    doc = (re.search(r"<DocSysID[^>]*>([^<]*)</DocSysID>", text) or [None, ""])[1].strip()
+    ipadt = _rows(text, "IPADT")
+    admit = ipadt[0][14].strip() if ipadt and len(ipadt[0]) > 14 else ""
+    return {
+        "doc": doc,
+        "has_tag": code is not None,
+        "auth_code": code.group(1).strip() if code else "",
+        "auth_dt": dt.group(1).strip() if dt else "",
+        "admit_dt": admit,
+    }
+
+
+def _auth_findings(raw: bytes) -> List[dict]:
+    a = read_auth(raw)
+    out: List[dict] = []
+    if not a["has_tag"]:
+        out.append(_finding("31", "ERROR", "ไม่พบแท็ก <AuthCode> ใน <ClaimAuth>", where="ClaimAuth"))
+        return out
+    code = a["auth_code"]
+    if not code:
+        # ไฟล์ AIPN หลายฉบับส่งโดยไม่มีเลขอนุมัติ — เตือนไว้ให้ตรวจตามสิทธิ ส่วน CIPN (กรมบัญชีกลาง) ต้องมี
+        sev = "ERROR" if a["doc"].upper() == "CIPN" else "WARNING"
+        out.append(_finding(
+            "31", sev, "AuthCode ว่าง (ไม่มีเลขอนุมัตินอนโรงพยาบาล) — สกส. ตีกลับ 31: empty AuthCode",
+            where="ClaimAuth", suggest="กรอกเลขอนุมัติจากเว็บ สกส."))
+    elif not AUTH_CODE_RE.match(code):
+        out.append(_finding(
+            "31", "ERROR", f"AuthCode '{code}' ผิดรูปแบบ — ต้องเป็นตัวอักษรอังกฤษพิมพ์ใหญ่/ตัวเลข",
+            where="ClaimAuth", suggest=f"แก้เป็น {re.sub(r'[^A-Za-z0-9]', '', code).upper()}"))
+    if code and not a["auth_dt"]:
+        out.append(_finding("31", "WARNING", "มี AuthCode แต่ AuthDT ว่าง", where="ClaimAuth",
+                            suggest=f"ใช้วันเวลา admit {a['admit_dt']}" if a["admit_dt"] else ""))
+    return out
+
+
+def set_auth(raw: bytes, auth_code: str, auth_dt: str = "") -> tuple:
+    """
+    ตั้ง AuthCode (ตัดช่องว่าง + ตัวพิมพ์ใหญ่ + ตรวจรูปแบบ) และ AuthDT
+    auth_dt ว่าง = คงค่าเดิม ถ้าเดิมว่างจะใช้วันเวลา admit (ไฟล์จริงทุกฉบับ AuthDT = วัน admit)
+    คืน (ไบต์ใหม่, {before, after})
+    """
+    code = re.sub(r"\s+", "", auth_code or "").upper()
+    if not AUTH_CODE_RE.match(code):
+        raise ValueError(f"เลขอนุมัติ '{auth_code}' ไม่ถูกรูปแบบ — ต้องเป็นตัวอักษรอังกฤษ/ตัวเลข 4–20 ตัว")
+    dt = (auth_dt or "").strip()
+    if dt and not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", dt):
+        raise ValueError(f"AuthDT '{dt}' ต้องเป็นรูปแบบ YYYY-MM-DDTHH:MM:SS")
+    before = read_auth(raw)
+    if not before["has_tag"]:
+        raise ValueError("ไม่พบแท็ก <AuthCode> ในไฟล์ — แก้ด้วยเมนูนี้ไม่ได้")
+    dt = dt or before["auth_dt"] or before["admit_dt"]
+
+    text = raw.decode(ENCODING)
+    text = re.sub(r"<AuthCode>[^<]*</AuthCode>", f"<AuthCode>{code}</AuthCode>", text, count=1)
+    if dt:
+        text = re.sub(r"<AuthDT>[^<]*</AuthDT>", f"<AuthDT>{dt}</AuthDT>", text, count=1)
+    new = text.encode(ENCODING)
+    after = read_auth(new)
+    return new, {"before": {"auth_code": before["auth_code"], "auth_dt": before["auth_dt"]},
+                 "after": {"auth_code": after["auth_code"], "auth_dt": after["auth_dt"]}}
+
+
 def remove_rows(raw: bytes, seqs: List[str]) -> tuple:
     """
     ลบแถว BillItems ตามลำดับ (seq) ที่ระบุ แล้ว
@@ -175,6 +247,9 @@ def validate(raw: bytes) -> dict:
                 f"{section}: Reccount ระบุ {m.group(1)} แต่มีจริง {len(rows)} แถว", where=section))
 
     bill = _rows(text, "BillItems")
+
+    # เลขอนุมัตินอนโรงพยาบาล (ClaimAuth)
+    findings.extend(_auth_findings(raw))
 
     # IPDx ต้องมีโรคหลักและเลขใบประกอบวิชาชีพ
     dx = _rows(text, "IPDx")
@@ -309,6 +384,7 @@ def validate(raw: bytes) -> dict:
             "xdrg_claim_calc": _fmt(totals["xdrg_claim"]),
         },
         "signature_ok": sig_ok,
+        "auth": read_auth(raw),
         "error_count": sum(1 for f in findings if f["severity"] == "ERROR"),
         "warning_count": sum(1 for f in findings if f["severity"] == "WARNING"),
         "can_fix": True,

@@ -13,11 +13,13 @@ import zipfile
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from database import get_db
 from models import User
 from routers.stdcode_fix import _read_txt_uploads
+from services.fix_history import record_fix
 from services.csop_file_editor import (
     apply_claimcont_fix,
     build_zip_filename,
@@ -52,6 +54,7 @@ async def preview(
 async def apply(
     files: List[UploadFile] = File(...),
     selections: str = Form(...),
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     orig_zip_name = next(
@@ -77,7 +80,7 @@ async def apply(
     if disp_name and len(contents) == 1 and not orig_zip_name:
         headers["Content-Disposition"] = f"attachment; filename={disp_name}"
         headers["X-Filename"] = disp_name
-        return StreamingResponse(
+        return record_fix(db, current_user, "claimcont",
             io.BytesIO(result.files[disp_name]),
             media_type="application/octet-stream", headers=headers,
         )
@@ -90,4 +93,4 @@ async def apply(
     zip_name = orig_zip_name or build_zip_filename(contents)
     headers["Content-Disposition"] = f"attachment; filename={zip_name}"
     headers["X-Filename"] = zip_name
-    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)
+    return record_fix(db, current_user, "claimcont", io.BytesIO(buf.getvalue()), media_type="application/zip", headers=headers)

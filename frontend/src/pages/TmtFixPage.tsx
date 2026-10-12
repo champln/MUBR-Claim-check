@@ -10,6 +10,7 @@ import {
   previewTmtFix, applyTmtFix,
   type TmtPreviewResult, type TmtRule,
 } from '../lib/api'
+import FixHistoryPanel from '../components/FixHistoryPanel'
 
 type RuleForm = { matchBy: 'old_tmt' | 'hosdrugcode'; matchValue: string; newTmt: string }
 const EMPTY_RULE: RuleForm = { matchBy: 'old_tmt', matchValue: '', newTmt: '' }
@@ -220,6 +221,8 @@ export default function TmtFixPage() {
           </div>
         </div>
       )}
+
+      <FixHistoryPanel menu="tmt" />
     </div>
   )
 }

@@ -19,7 +19,7 @@ CSOP / CHI XML claim-file editor (byte-faithful).
 - BILLTRAN  field[1]  (BillTran.AuthCode)  ""  -> "STCPAP"
 - OPServices field[2] (OPServices.Class)   "EC" -> "ED"   (Endorser)
 - OPDx      field[0]                       "EC" -> "ED"
-- OPServices field[20] (OPServices.SvPID)  ""  -> <รหัสอนุมัติ เช่น B4GFQJ>
+- OPServices field[20] (OPServices.SvPID)  ""  -> <รหัสอนุมัติ เช่น AB12CD>
 - ทุกไฟล์ที่ถูกแก้ -> คำนวณ Checksum ใหม่
 """
 from __future__ import annotations
@@ -944,6 +944,18 @@ def apply_total_sync(files: Dict[str, bytes]) -> "OpdFeeFixResult":
 # (ฟิลด์ที่ 3 = วันเวลาที่รับบริการ) — แถวไหนไม่ตรงให้แก้ตามวัน visit
 BILLTRAN_SVDATE_IDX = 2     # วันเวลาที่รับบริการ (ฟิลด์ที่ 3) เช่น 2026-03-02 07:52:53
 BILLITEMS_DATE_IDX = 1      # วันที่ของรายการ (ฟิลด์ที่ 2) เช่น 2026-03-02
+BILLITEMS_BILLMU_IDX = 2    # หมวดค่ารักษา (ฟิลด์ที่ 3) 1-9, A-G
+
+# หมวดค่ารักษา 16 หมวดของกรมบัญชีกลาง (BillMuad) — เทียบจากชื่อรายการในไฟล์จริง
+BILLMU_NAMES = {
+    "1": "ค่าห้อง/ค่าอาหาร", "2": "อวัยวะเทียม/อุปกรณ์บำบัดรักษา", "3": "ยาและสารอาหารทางเส้นเลือด",
+    "4": "ยาที่นำไปใช้ต่อที่บ้าน", "5": "เวชภัณฑ์ที่ไม่ใช่ยา", "6": "บริการโลหิตและส่วนประกอบ",
+    "7": "ตรวจทางเทคนิคการแพทย์/พยาธิวิทยา", "8": "ตรวจและรักษาทางรังสีวิทยา",
+    "9": "ตรวจวินิจฉัยโดยวิธีพิเศษอื่นๆ", "A": "อุปกรณ์และเครื่องมือทางการแพทย์",
+    "B": "หัตถการและวิสัญญี", "C": "บริการทางการพยาบาล", "D": "บริการทางทันตกรรม",
+    "E": "กายภาพบำบัดและเวชกรรมฟื้นฟู", "F": "ฝังเข็ม/แพทย์แผนไทยและผู้ประกอบโรคศิลปะอื่น",
+    "G": "บริการอื่นที่ไม่เกี่ยวกับการรักษาโดยตรง",
+}
 
 
 @dataclass
@@ -994,8 +1006,11 @@ def _svdate_targets(
         want = forced or visits.get(invno, "")
         if not want or not current or current == want:
             continue
+        billmu = _norm(row[BILLITEMS_BILLMU_IDX]).upper()
         targets.append({
             "invno": invno,
+            "billmu": billmu,
+            "billmu_name": BILLMU_NAMES.get(billmu, ""),
             "desc": _norm(row[BILLITEMS_DESC_IDX]),
             "local_code": _norm(row[3]),
             "std_code": _norm(row[BILLITEMS_STDCODE_IDX]),
@@ -1020,24 +1035,52 @@ def _svdate_targets(
     return billtran_name, targets, others
 
 
-def preview_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> dict:
-    """ดูว่าแถวไหนใน BillItems มีวันที่ไม่ตรงกับวัน visit (ยังไม่แก้ไฟล์)"""
+def _category_set(categories: Optional[List[str]]) -> Optional[set]:
+    """หมวดที่เลือกแก้ — None/ว่าง = ทุกหมวด"""
+    cats = {_norm(c).upper() for c in (categories or []) if _norm(c)}
+    return cats or None
+
+
+def preview_svdate_fix(files: Dict[str, bytes], force_date: str = "",
+                       categories: Optional[List[str]] = None) -> dict:
+    """
+    ดูว่าแถวไหนใน BillItems มีวันที่ไม่ตรงกับวัน visit (ยังไม่แก้ไฟล์)
+    categories : หมวดค่ารักษา (BillMu) ที่จะแก้ — ว่าง = ทุกหมวด
+    แสดงแถวไม่ตรงทุกหมวดเสมอ (บอกว่าแถวไหนอยู่ในหมวดที่เลือก) เพื่อให้เห็นภาพรวมก่อนเลือก
+    """
     billtran_name, targets, others = _svdate_targets(files, force_date)
     bt = CsopFile.parse(files[billtran_name])
+    cats = _category_set(categories)
+    summary: Dict[str, dict] = {}
+    for t in targets:
+        t["selected"] = cats is None or t["billmu"] in cats
+        c = summary.setdefault(t["billmu"], {"billmu": t["billmu"], "name": t["billmu_name"], "count": 0})
+        c["count"] += 1
+    order = list(BILLMU_NAMES)
     return {
         "billtran_file": billtran_name,
-        "total_change_count": len(targets),
+        "total_change_count": sum(1 for t in targets if t["selected"]),
+        "mismatch_count": len(targets),
+        "categories": sorted(summary.values(),
+                             key=lambda c: order.index(c["billmu"]) if c["billmu"] in order else 99),
         "rows": targets,
         "other_mismatches": others,
         "visit_dates": _visit_dates(bt),
     }
 
 
-def apply_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> SvDateFixResult:
-    """แก้วันที่ของรายการใน BillItems ให้ตรงวัน visit แล้วเซ็น Checksum ใหม่"""
+def apply_svdate_fix(files: Dict[str, bytes], force_date: str = "",
+                     categories: Optional[List[str]] = None) -> SvDateFixResult:
+    """
+    แก้วันที่ของรายการใน BillItems ให้ตรงวัน visit แล้วเซ็น Checksum ใหม่
+    categories : แก้เฉพาะหมวดค่ารักษา (BillMu) ที่เลือก — ว่าง = ทุกหมวด
+    """
     billtran_name, targets, _ = _svdate_targets(files, force_date)
+    cats = _category_set(categories)
     if not targets:
         raise ValueError("ไม่พบแถวที่ต้องแก้ — วันที่ของทุกรายการตรงกับวัน visit อยู่แล้ว")
+    if cats is not None and not any(t["billmu"] in cats for t in targets):
+        raise ValueError("หมวดที่เลือกไม่มีแถวที่วันที่ไม่ตรง — เลือกหมวดใหม่")
 
     bt = CsopFile.parse(files[billtran_name])
     visits = _visit_dates(bt)
@@ -1046,7 +1089,9 @@ def apply_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> SvDateFix
     counter = {"n": 0}
 
     def fix(cols: List[str]) -> Optional[List[str]]:
-        if len(cols) <= BILLITEMS_DATE_IDX:
+        if len(cols) <= BILLITEMS_BILLMU_IDX:
+            return None
+        if cats is not None and _norm(cols[BILLITEMS_BILLMU_IDX]).upper() not in cats:
             return None
         want = forced or visits.get(_norm(cols[0]), "")
         current = _norm(cols[BILLITEMS_DATE_IDX])
@@ -1058,7 +1103,8 @@ def apply_svdate_fix(files: Dict[str, bytes], force_date: str = "") -> SvDateFix
     bt.edit_section("BillItems", fix)
     out[billtran_name] = bt.to_bytes()
 
-    changes = [f"{billtran_name}: แก้วันที่ให้บริการใน BillItems {counter['n']} รายการ"] if counter["n"] else []
+    scope = f" (หมวด {', '.join(sorted(cats))})" if cats else ""
+    changes = [f"{billtran_name}: แก้วันที่ให้บริการใน BillItems {counter['n']} รายการ{scope}"] if counter["n"] else []
     return SvDateFixResult(files=out, changes=changes, rows_changed=counter["n"])
 
 
