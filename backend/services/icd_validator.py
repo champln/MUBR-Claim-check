@@ -8,6 +8,8 @@ import re
 ICD10_PATTERN = re.compile(r"^[A-Za-z]\d{2}(\.\d{1,2})?$")
 # ICD-10 with no dot (raw): A00, B012, etc.
 ICD10_RAW_PATTERN = re.compile(r"^[A-Za-z]\d{2,4}$")
+# ICD-10-TM รหัสการแพทย์แผนไทย (U50–U79) ยาวได้ถึง U + 5 หลัก เช่น U78906
+ICD10_TM_TTM_PATTERN = re.compile(r"^[Uu]\d{5}$")
 # ICD-9-CM: 2-3 digits, optional dot + 1-2 digits (procedure)
 ICD9_PATTERN = re.compile(r"^\d{2,3}(\.\d{1,2})?$")
 
@@ -31,7 +33,7 @@ def validate_icd10(code: str) -> tuple[bool, str]:
     if not code:
         return False, "รหัสว่าง"
     code = code.strip().upper()
-    if ICD10_PATTERN.match(code) or ICD10_RAW_PATTERN.match(code):
+    if ICD10_PATTERN.match(code) or ICD10_RAW_PATTERN.match(code) or ICD10_TM_TTM_PATTERN.match(code):
         return True, ""
     return False, f"รูปแบบรหัส ICD-10 ไม่ถูกต้อง: {code}"
 

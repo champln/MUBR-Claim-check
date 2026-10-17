@@ -11,7 +11,9 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from services.hosxp_engine import get_engine
 
 # วิธียืนยันที่รองรับ (เรียงตามลำดับที่ลอง detect)
 AUTH_METHODS = ["MD5", "SHA1", "SHA256", "PLAIN", "MYSQL_PASSWORD", "MYSQL_ENCRYPT"]
@@ -25,7 +27,7 @@ class HosxpAuthError(Exception):
 
 
 def _engine(db_url: str):
-    return create_engine(db_url)
+    return get_engine(db_url)
 
 
 def _fetch_password(

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, Pencil, Trash2, Power, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Power, AlertCircle, CheckCircle2, Database } from 'lucide-react'
 import clsx from 'clsx'
 import {
   getRules, createRule, updateRule, deleteRule, toggleRule,
   getUsers, createUser, updateUser, getAuditLogs,
   getHosxpSelections, createHosxpSelection, updateHosxpSelection, syncHosxpSelections,
   getHosxpConfig, upsertHosxpConfig, getHosxpCandidates, bulkUpsertHosxpSelections, detectHosxpAuth,
-  getLivePrescreenStatus,
+  testHosxpConfig,
 } from '../lib/api'
 import { getAuthUser } from '../lib/session'
 import { CLAIM_TYPE_LABELS } from '../types/claim'
@@ -81,7 +81,12 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
   const [userForm, setUserForm] = useState<UserForm>(EMPTY_USER_FORM)
   const [hosxpForm, setHosxpForm] = useState<HosxpSelectionForm>(EMPTY_HOSXP_FORM)
   const [hosxpConfigForm, setHosxpConfigForm] = useState<HosxpConnectionConfigUpsertRequest>({
-    db_url: '',
+    db_type: 'postgresql',
+    host: '',
+    port: 5432,
+    database: '',
+    db_username: '',
+    db_password: '',
     user_table: '',
     username_column: '',
     full_name_column: '',
@@ -212,7 +217,12 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
     mutationFn: upsertHosxpConfig,
     onSuccess: (res) => {
       setHosxpConfigForm({
-        db_url: res.db_url || '',
+        db_type: (res.db_type === 'mysql' ? 'mysql' : 'postgresql'),
+        host: res.host || '',
+        port: res.port || undefined,
+        database: res.database || '',
+        db_username: res.db_username || '',
+        db_password: '',
         user_table: res.user_table || '',
         username_column: res.username_column || '',
         full_name_column: res.full_name_column || '',
@@ -227,10 +237,11 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
   })
 
   const testConnMutation = useMutation({
-    mutationFn: getLivePrescreenStatus,
+    // ทดสอบด้วยค่าที่กรอกอยู่ในฟอร์มเลย ไม่ต้องบันทึกก่อน (รหัสผ่านว่าง = ใช้ที่บันทึกไว้)
+    mutationFn: () => testHosxpConfig(hosxpPayload()),
     onSuccess: (res) => {
-      if (res.reachable) toast.success('เชื่อมต่อฐาน HOSxP สำเร็จ · พร้อมใช้ Pre-screen สด')
-      else toast.error(res.message || 'เชื่อมต่อฐาน HOSxP ไม่สำเร็จ')
+      if (res.ok) toast.success('เชื่อมต่อฐาน HOSxP สำเร็จ · กดบันทึกเพื่อใช้งาน Pre-screen สด')
+      else toast.error(res.message || 'เชื่อมต่อฐาน HOSxP ไม่สำเร็จ', { duration: 8000 })
     },
     onError: (e: any) => toast.error(e.response?.data?.detail || 'ทดสอบการเชื่อมต่อไม่สำเร็จ'),
   })
@@ -259,7 +270,9 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
   const setHosxpConfig = (k: keyof HosxpConnectionConfigUpsertRequest) => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const value = k === 'is_enabled' ? e.target.checked : e.target.value
+    const value = k === 'is_enabled' ? e.target.checked
+      : k === 'port' ? (e.target.value ? Number(e.target.value) : undefined)
+      : e.target.value
     setHosxpConfigForm((f) => ({ ...f, [k]: value as any }))
   }
 
@@ -350,16 +363,22 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
     setSelectedCandidates((prev) => ({ ...prev, [username]: !prev[username] }))
   }
 
+  const hosxpPayload = (): HosxpConnectionConfigUpsertRequest => ({
+    ...hosxpConfigForm,
+    host: hosxpConfigForm.host.trim(),
+    database: hosxpConfigForm.database.trim(),
+    db_username: hosxpConfigForm.db_username.trim(),
+    db_password: hosxpConfigForm.db_password || undefined,
+    port: hosxpConfigForm.port || undefined,
+    user_table: hosxpConfigForm.user_table?.trim() || undefined,
+    username_column: hosxpConfigForm.username_column?.trim() || undefined,
+    full_name_column: hosxpConfigForm.full_name_column?.trim() || undefined,
+    active_column: hosxpConfigForm.active_column?.trim() || undefined,
+  })
+
   const handleSaveHosxpConfig = (e: React.FormEvent) => {
     e.preventDefault()
-    upsertHosxpConfigMutation.mutate({
-      ...hosxpConfigForm,
-      db_url: hosxpConfigForm.db_url.trim(),
-      user_table: hosxpConfigForm.user_table?.trim() || undefined,
-      username_column: hosxpConfigForm.username_column?.trim() || undefined,
-      full_name_column: hosxpConfigForm.full_name_column?.trim() || undefined,
-      active_column: hosxpConfigForm.active_column?.trim() || undefined,
-    })
+    upsertHosxpConfigMutation.mutate(hosxpPayload())
   }
 
   const handleBulkApproveCandidates = () => {
@@ -383,9 +402,14 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
   useEffect(() => {
     if (!hosxpConfig) return
     setHosxpConfigForm((prev) => {
-      if (prev.db_url) return prev
+      if (prev.host) return prev
       return {
-        db_url: hosxpConfig.db_url || '',
+        db_type: (hosxpConfig.db_type === 'mysql' ? 'mysql' : 'postgresql'),
+        host: hosxpConfig.host || '',
+        port: hosxpConfig.port || undefined,
+        database: hosxpConfig.database || '',
+        db_username: hosxpConfig.db_username || '',
+        db_password: '',
         user_table: hosxpConfig.user_table || '',
         username_column: hosxpConfig.username_column || '',
         full_name_column: hosxpConfig.full_name_column || '',
@@ -626,19 +650,61 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
           </div>
 
           <form className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end" onSubmit={handleSaveHosxpConfig}>
-            <div className="md:col-span-3">
-              <label className="label">DB URL *</label>
-              <input
-                className="input"
-                placeholder="postgresql+psycopg2://user:password@host:5432/hos  (HOSxP XE)  |  mysql+pymysql://user:password@host:3306/hos  (HOSxP เก่า)"
-                value={hosxpConfigForm.db_url}
-                onChange={setHosxpConfig('db_url')}
-                required
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                HOSxP XE = PostgreSQL (`postgresql+psycopg2://`) · HOSxP รุ่นเก่า = MySQL (`mysql+pymysql://`) — แนะนำใช้ user แบบอ่านอย่างเดียว (read-only)
-              </p>
+            {/* หน้าตาแบบหน้าจอ "Database Connection" ของ HOSxP */}
+            <div className="md:col-span-3 rounded-xl overflow-hidden border border-slate-300">
+              <div className="bg-gradient-to-r from-blue-800 to-blue-600 text-white px-4 py-2.5 flex items-center gap-2">
+                <Database className="w-5 h-5" />
+                <span className="font-semibold">Database Connection</span>
+                <span className="ml-auto text-xs text-blue-100">
+                  {hosxpConfig?.has_password ? 'บันทึกการเชื่อมต่อไว้แล้ว' : 'ยังไม่ได้ตั้งค่า'}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 px-4 py-1.5 text-xs font-semibold text-slate-600 border-b border-slate-200">กำหนดค่าฐานข้อมูล</div>
+              <div className="p-4 grid grid-cols-[auto_1fr] md:grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-2.5 items-center text-sm">
+                <label className="text-right text-gray-600">ชื่อเครื่อง</label>
+                <input className="input md:col-span-3" value={hosxpConfigForm.host} onChange={setHosxpConfig('host')}
+                  placeholder="IP หรือชื่อเครื่องฐาน HOSxP" required />
+                <label className="text-right text-gray-600">ชื่อฐานข้อมูล</label>
+                <input className="input md:col-span-3" value={hosxpConfigForm.database} onChange={setHosxpConfig('database')}
+                  placeholder="ชื่อฐาน HOSxP" required />
+                <label className="text-right text-gray-600">รหัสผู้ใช้งาน</label>
+                <input className="input" value={hosxpConfigForm.db_username} onChange={setHosxpConfig('db_username')}
+                  placeholder="user แบบอ่านอย่างเดียว" autoComplete="off" required />
+                <label className="text-right text-gray-600">รหัสผ่าน</label>
+                <input className="input" type="password" value={hosxpConfigForm.db_password || ''} onChange={setHosxpConfig('db_password')}
+                  autoComplete="new-password"
+                  placeholder={hosxpConfig?.has_password ? '•••••• (เว้นว่าง = ใช้รหัสเดิม)' : 'รหัสผ่านฐานข้อมูล'}
+                  required={!hosxpConfig?.has_password} />
+                <label className="text-right text-gray-600">ช่องเชื่อมต่อ</label>
+                <input className="input w-28" type="number" min={1} max={65535}
+                  value={hosxpConfigForm.port ?? ''} onChange={setHosxpConfig('port')}
+                  placeholder={hosxpConfigForm.db_type === 'mysql' ? '3306' : '5432'} />
+              </div>
+
+              <div className="bg-slate-50 px-4 py-1.5 text-xs font-semibold text-slate-600 border-y border-slate-200">ประเภทฐานข้อมูล</div>
+              <div className="p-4 flex flex-wrap items-center gap-3 text-sm">
+                <label className="text-gray-600">ประเภทฐานข้อมูล</label>
+                <select className="input w-44" value={hosxpConfigForm.db_type}
+                  onChange={e => {
+                    const t = e.target.value as HosxpConnectionConfigUpsertRequest['db_type']
+                    setHosxpConfigForm(f => ({
+                      ...f, db_type: t,
+                      // เปลี่ยนประเภทแล้วพอร์ตยังเป็นค่ามาตรฐานของอีกแบบ -> เปลี่ยนตามให้
+                      port: !f.port || f.port === 5432 || f.port === 3306 ? (t === 'mysql' ? 3306 : 5432) : f.port,
+                    }))
+                  }}>
+                  <option value="postgresql">PostgreSQL (HOSxP XE)</option>
+                  <option value="mysql">MySQL (HOSxP รุ่นเก่า)</option>
+                </select>
+                <span className="text-xs text-gray-400">
+                  รหัสผ่านที่มีอักขระพิเศษ (@ # : /) ใส่ได้เลย ระบบจัดการให้ · ระบบไม่แสดงรหัสผ่านที่บันทึกแล้ว
+                </span>
+              </div>
             </div>
+            <p className="md:col-span-3 text-xs text-gray-500">
+              แนะนำใช้ user แบบอ่านอย่างเดียว (read-only) — ตัวอย่างคำสั่งสร้าง user อยู่ในเอกสาร docs/LIVE_PRESCREEN_SETUP.md
+            </p>
             <div>
               <label className="label">User Table (optional)</label>
               <input className="input" value={hosxpConfigForm.user_table || ''} onChange={setHosxpConfig('user_table')} placeholder="opduser" />
@@ -663,8 +729,8 @@ export default function SettingsPage({ view = 'rules' }: { view?: 'rules' | 'sys
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={testConnMutation.isPending || !hosxpConfig?.is_enabled}
-                title={!hosxpConfig?.is_enabled ? 'บันทึกและเปิดใช้งานก่อนจึงจะทดสอบได้' : 'ทดสอบว่าเชื่อมต่อฐาน HOSxP ที่บันทึกไว้ได้จริง'}
+                disabled={testConnMutation.isPending || !hosxpConfigForm.host.trim()}
+                title="ทดสอบด้วยค่าที่กรอกอยู่ (ยังไม่ต้องบันทึก)"
                 onClick={() => testConnMutation.mutate()}
               >
                 {testConnMutation.isPending ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'}

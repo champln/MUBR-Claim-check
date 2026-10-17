@@ -130,6 +130,10 @@ export const getHosxpConfig = () =>
 export const upsertHosxpConfig = (data: HosxpConnectionConfigUpsertRequest) =>
   api.put<HosxpConnectionConfig>('/auth/hosxp-config', data).then(r => r.data)
 
+// ทดสอบเชื่อมต่อด้วยค่าที่กรอกในฟอร์ม (ยังไม่บันทึก)
+export const testHosxpConfig = (data: HosxpConnectionConfigUpsertRequest) =>
+  api.post<{ ok: boolean; message: string }>('/auth/hosxp-config/test', data, { timeout: 60000 }).then(r => r.data)
+
 export const detectHosxpAuth = (data: { username: string; password: string }) =>
   api.post<import('../types/auth').HosxpDetectAuthResult>('/auth/hosxp-config/detect-auth', data).then(r => r.data)
 
@@ -198,6 +202,12 @@ export interface LivePrescreenRecord {
   visit_date: string | null
   visit_time: string
   pttype: string
+  spclty_name?: string     // แผนก (HOSxP spclty)
+  main_dep?: string
+  main_dep_name?: string   // ห้องตรวจหลัก (kskdepartment)
+  cur_dep_name?: string    // ห้องที่ผู้ป่วยอยู่ตอนนี้
+  pttype_name?: string     // ชื่อสิทธิ (HOSxP pttype.name)
+  doctor_name?: string     // แพทย์ผู้ตรวจ (ว่าง = ยังไม่ลงแพทย์)
   pdx: string | null
   adx: string[]
   total_charge: number
@@ -221,7 +231,20 @@ export interface LivePrescreenResult {
   }
   records: LivePrescreenRecord[]
   rules_skipped?: string[]   // กฎจากเมนูแก้ไฟล์ที่รันกับ HOSxP นี้ไม่ได้
+  cached?: boolean           // ได้จากแคชฝั่งเซิร์ฟเวอร์ (ไม่ได้ยิง HOSxP ซ้ำ)
+  cache_ttl?: number
 }
+
+export interface LiveReadiness {
+  dialect: string
+  ready: boolean
+  checks: { rule: string; required: boolean; ok: boolean; missing: string[] }[]
+  no_select?: string[]   // ตารางที่ user ยังไม่มีสิทธิ์อ่าน
+  db_user?: string
+}
+
+export const getLiveReadiness = () =>
+  api.get<LiveReadiness>('/live-prescreen/readiness', { timeout: 60000 }).then(r => r.data)
 
 export interface LivePrescreenStatus {
   configured: boolean
@@ -232,13 +255,87 @@ export interface LivePrescreenStatus {
 export const getLivePrescreenStatus = () =>
   api.get<LivePrescreenStatus>('/live-prescreen/status').then(r => r.data)
 
+// ─── Pre-screen สด ผู้ป่วยใน (เรียกเฉพาะเมื่อเปิดหน้าผู้ป่วยใน) ──────────────────
+
+export interface LiveIpdRecord {
+  an: string
+  vn: string | null
+  hn: string | null
+  pid: string | null
+  patient_name: string | null
+  admit_date: string | null
+  admit_time: string
+  discharge_date: string | null
+  discharge_time: string
+  los: number | null
+  pttype: string
+  pttype_name: string
+  ward_name: string
+  spclty_name: string
+  admit_doctor_name: string
+  dch_doctor_name: string
+  pdx: string | null
+  adx: string[]
+  drg: string | null
+  rw: number | null
+  auth_code: string
+  total_charge: number
+  status: 'PASSED' | 'FAILED' | 'FLAGGED_C'
+  flag_reason: string | null
+  errors: LivePrescreenError[]
+}
+
+export interface LiveIpdResult {
+  fetched_at: string
+  mode: 'discharged' | 'admitted'
+  date_from: string
+  date_to: string
+  summary: LivePrescreenResult['summary']
+  records: LiveIpdRecord[]
+  cached?: boolean
+  cache_ttl?: number
+}
+
+export const runLivePrescreenIpd = (params: {
+  mode: 'discharged' | 'admitted'
+  date_from?: string
+  date_to?: string
+  force?: boolean
+}) =>
+  api.get<LiveIpdResult>('/live-prescreen/ipd', { params, timeout: 120000 }).then(r => r.data)
+
 export const runLivePrescreen = (params: {
   date_from?: string
   date_to?: string
   pttype?: string
   limit?: number
+  force?: boolean      // ข้ามแคช ดึงจาก HOSxP ทันที
 }) =>
   api.get<LivePrescreenResult>('/live-prescreen', { params, timeout: 120000 }).then(r => r.data)
+
+export interface LivePttype {
+  pttype: string
+  name: string
+  hipdata_code: string
+  group: string          // กลุ่มสิทธิ (กรมบัญชีกลาง / อปท. / ประกันสังคม ...)
+  visits_90d: number
+}
+
+export const getLivePttypes = () =>
+  api.get<LivePttype[]>('/live-prescreen/pttypes', { timeout: 60000 }).then(r => r.data)
+
+/** ส่งออกผล Pre-screen สด (เฉพาะแถวตามตัวกรองที่เลือก) เป็น Excel */
+export const exportLivePrescreen = async (records: LivePrescreenRecord[], title: string) => {
+  const res = await api.post('/live-prescreen/export', { records, title }, { responseType: 'blob', timeout: 120000 })
+  const cd = String(res.headers['content-disposition'] || '')
+  const name = /filename="?([^";]+)"?/.exec(cd)?.[1] || 'live_prescreen_opd.xlsx'
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
 
@@ -1237,3 +1334,29 @@ export const clearFixHistory = (fiscalYear: number, menu?: string) =>
   api.delete<{ message: string; deleted: number }>('/fix-history', {
     params: { fiscal_year: fiscalYear, menu: menu || undefined },
   }).then(r => r.data)
+
+// ─── รายงานทะเบียนรายการ HOSxP ที่ ClaimCat น่าสงสัย ─────────────────────────────
+
+export interface ClaimCatMasterItem {
+  icode: string
+  name: string
+  income: string
+  income_name: string
+  claim_cat: string
+  price: number
+  kind: 'T_OUTSIDE' | 'D_ROOM' | 'EMPTY'
+  kind_label: string
+  ipd_admissions: number
+  ipd_qty: number
+  last_used: string | null
+}
+
+export interface ClaimCatMasterReport {
+  since: string
+  items: ClaimCatMasterItem[]
+  counts: Record<ClaimCatMasterItem['kind'], number>
+  used_counts: Record<ClaimCatMasterItem['kind'], number>
+}
+
+export const getClaimCatMaster = (days: number) =>
+  api.get<ClaimCatMasterReport>('/live-prescreen/claimcat-master', { params: { days }, timeout: 120000 }).then(r => r.data)

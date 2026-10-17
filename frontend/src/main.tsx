@@ -32,6 +32,8 @@ import CipnDateRevPage from './pages/CipnDateRevPage'
 import CipnFixPage from './pages/CipnFixPage'
 import HelpPage from './pages/HelpPage'
 import LivePrescreenPage from './pages/LivePrescreenPage'
+import LivePrescreenIpdPage from './pages/LivePrescreenIpdPage'
+import ClaimCatMasterPage from './pages/ClaimCatMasterPage'
 import { getAuthToken } from './lib/session'
 
 const queryClient = new QueryClient({
@@ -62,6 +64,8 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route path="/" element={<DashboardPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/live-prescreen" element={<LivePrescreenPage />} />
+            <Route path="/live-prescreen-ipd" element={<LivePrescreenIpdPage />} />
+            <Route path="/claimcat-master" element={<ClaimCatMasterPage />} />
             <Route path="/batches" element={<BatchListPage />} />
             <Route path="/batches/:batchId" element={<BatchDetailPage />} />
             <Route path="/reports" element={<ReportsPage />} />

@@ -14,6 +14,7 @@ except ImportError:  # ไม่มี python-dotenv ก็ยังรันไ
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from database import engine, Base
 from routers import auth, claims, prescreen, reports
 from routers import claim_files, cpap_fix, live_prescreen, covid19_fix, rama_sh50_fix, tmt_fix
@@ -69,6 +70,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# บีบอัดคำตอบที่ใหญ่ (เช่น Pre-screen สดหลายวัน ~1 MB) — JSON เล็กลงหลายเท่า เบราว์เซอร์คลายให้เอง
+app.add_middleware(GZipMiddleware, minimum_size=2048)
 
 _ROUTERS = [
     prescreen.router,

@@ -413,12 +413,95 @@ def sync_hosxp_selections(
     )
 
 
+_DRIVERS = {"postgresql": "postgresql+psycopg2", "mysql": "mysql+pymysql"}
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
+
+
+def _parse_db_url(db_url: Optional[str]) -> dict:
+    """แยก DB URL เป็นช่องแบบหน้าจอ HOSxP (รหัสผ่านไม่ออกไปนอกฟังก์ชันนี้ยกเว้นตอนประกอบใหม่)"""
+    from sqlalchemy.engine import make_url
+    if not db_url:
+        return {}
+    try:
+        u = make_url(db_url)
+    except Exception:
+        return {}
+    backend = u.get_backend_name()
+    return {
+        "db_type": "postgresql" if backend.startswith("postgres") else backend,
+        "host": u.host, "port": u.port, "database": u.database,
+        "db_username": u.username, "password": u.password,
+    }
+
+
+def _build_db_url(body: HosxpConnectionConfigUpsertRequest, existing_url: Optional[str]) -> str:
+    """ประกอบ URL จากช่องที่กรอก — URL.create เข้ารหัส @ # : / ในรหัสผ่านให้เอง"""
+    from sqlalchemy.engine import URL
+    if not body.host:
+        if body.db_url and body.db_url.strip():
+            return body.db_url.strip()
+        if existing_url:
+            return existing_url
+        raise HTTPException(status_code=400, detail="กรุณากรอกชื่อเครื่อง (Server) ของฐาน HOSxP")
+    db_type = (body.db_type or "postgresql").lower()
+    if db_type not in _DRIVERS:
+        raise HTTPException(status_code=400, detail="ประเภทฐานข้อมูลต้องเป็น PostgreSQL หรือ MySQL")
+    if not body.database or not body.db_username:
+        raise HTTPException(status_code=400, detail="กรุณากรอกชื่อฐานข้อมูลและรหัสผู้ใช้งาน")
+    password = body.db_password
+    if not password:
+        old = _parse_db_url(existing_url)
+        password = old.get("password")
+        if not password:
+            raise HTTPException(status_code=400, detail="กรุณากรอกรหัสผ่านฐานข้อมูล")
+    return URL.create(
+        _DRIVERS[db_type], username=body.db_username.strip(), password=password,
+        host=body.host.strip(), port=body.port or _DEFAULT_PORTS[db_type], database=body.database.strip(),
+    ).render_as_string(hide_password=False)
+
+
+def _config_out(cfg: Optional[HosxpConnectionConfig]) -> Optional[HosxpConnectionConfigOut]:
+    if not cfg:
+        return None
+    p = _parse_db_url(cfg.db_url)
+    return HosxpConnectionConfigOut(
+        id=cfg.id, db_type=p.get("db_type"), host=p.get("host"), port=p.get("port"),
+        database=p.get("database"), db_username=p.get("db_username"), has_password=bool(p.get("password")),
+        user_table=cfg.user_table, username_column=cfg.username_column,
+        full_name_column=cfg.full_name_column, active_column=cfg.active_column,
+        password_column=cfg.password_column, auth_method=cfg.auth_method,
+        is_enabled=cfg.is_enabled, updated_by_user_id=cfg.updated_by_user_id, updated_at=cfg.updated_at,
+    )
+
+
 @router.get("/hosxp-config", response_model=Optional[HosxpConnectionConfigOut])
 def get_hosxp_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN)),
 ):
-    return db.query(HosxpConnectionConfig).first()
+    return _config_out(db.query(HosxpConnectionConfig).first())
+
+
+@router.post("/hosxp-config/test")
+def test_hosxp_config(
+    body: HosxpConnectionConfigUpsertRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+):
+    """ทดสอบเชื่อมต่อด้วยค่าที่กรอกในฟอร์ม (ยังไม่บันทึก) — รหัสผ่านว่างจะใช้ที่บันทึกไว้"""
+    from services.hosxp_live_source import HosxpLiveSourceError, test_connection
+    cfg = db.query(HosxpConnectionConfig).first()
+    url = _build_db_url(body, cfg.db_url if cfg else None)
+    try:
+        test_connection(url)
+    except HosxpLiveSourceError as e:
+        # ข้อความจาก driver อาจมี URL — ตัดรหัสผ่านออกก่อนส่งกลับ
+        msg = str(e)
+        pw = _parse_db_url(url).get("password")
+        if pw:
+            msg = msg.replace(pw, "***")
+        return {"ok": False, "message": msg}
+    return {"ok": True, "message": "เชื่อมต่อฐาน HOSxP สำเร็จ"}
 
 
 @router.put("/hosxp-config", response_model=HosxpConnectionConfigOut)
@@ -428,9 +511,10 @@ def upsert_hosxp_config(
     current_user: User = Depends(require_roles(UserRole.ADMIN)),
 ):
     cfg = db.query(HosxpConnectionConfig).first()
+    db_url = _build_db_url(body, cfg.db_url if cfg else None)
     if not cfg:
         cfg = HosxpConnectionConfig(
-            db_url=body.db_url.strip(),
+            db_url=db_url,
             user_table=(body.user_table or None),
             username_column=(body.username_column or None),
             full_name_column=(body.full_name_column or None),
@@ -442,7 +526,7 @@ def upsert_hosxp_config(
         )
         db.add(cfg)
     else:
-        cfg.db_url = body.db_url.strip()
+        cfg.db_url = db_url
         cfg.user_table = body.user_table or None
         cfg.username_column = body.username_column or None
         cfg.full_name_column = body.full_name_column or None
@@ -460,7 +544,8 @@ def upsert_hosxp_config(
             cfg.username_column = cfg.username_column or discovered.get("username_column")
             cfg.full_name_column = cfg.full_name_column or discovered.get("full_name_column")
             cfg.active_column = cfg.active_column or discovered.get("active_column")
-        except HosxpUserLookupError:
+        except Exception:
+            # เชื่อมฐานไม่ได้ตอนบันทึก (เครื่องดับ/กรอกผิด) ก็ยังบันทึกการตั้งค่าได้ — ค้นหาตารางผู้ใช้ภายหลัง
             pass
 
     _write_audit(
@@ -472,7 +557,7 @@ def upsert_hosxp_config(
     )
     db.commit()
     db.refresh(cfg)
-    return cfg
+    return _config_out(cfg)
 
 
 @router.post("/hosxp-config/detect-auth", response_model=HosxpDetectAuthResult)

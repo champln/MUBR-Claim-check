@@ -73,9 +73,17 @@ export interface HosxpSyncResult {
   deactivated_users: number
 }
 
+export type HosxpDbType = 'postgresql' | 'mysql'
+
 export interface HosxpConnectionConfig {
   id: number
-  db_url: string
+  // แยกช่องแบบหน้าจอเชื่อมต่อของ HOSxP — API ไม่ส่งรหัสผ่านกลับมา บอกแค่ว่ามีบันทึกไว้
+  db_type?: HosxpDbType | string
+  host?: string
+  port?: number
+  database?: string
+  db_username?: string
+  has_password: boolean
   user_table?: string
   username_column?: string
   full_name_column?: string
@@ -88,7 +96,12 @@ export interface HosxpConnectionConfig {
 }
 
 export interface HosxpConnectionConfigUpsertRequest {
-  db_url: string
+  db_type: HosxpDbType
+  host: string
+  port?: number
+  database: string
+  db_username: string
+  db_password?: string     // ว่าง = ใช้รหัสผ่านที่บันทึกไว้เดิม
   user_table?: string
   username_column?: string
   full_name_column?: string

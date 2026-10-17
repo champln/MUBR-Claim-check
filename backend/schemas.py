@@ -271,7 +271,15 @@ class HosxpSyncResult(BaseModel):
 
 
 class HosxpConnectionConfigUpsertRequest(BaseModel):
-    db_url: str = Field(..., min_length=1)
+    # กรอกแบบหน้าจอเชื่อมต่อของ HOSxP (แยกช่อง) — ระบบประกอบเป็น URL และเข้ารหัสอักขระพิเศษให้เอง
+    db_type: Optional[str] = Field(None, max_length=20)        # postgresql / mysql
+    host: Optional[str] = Field(None, max_length=200)
+    port: Optional[int] = Field(None, ge=1, le=65535)
+    database: Optional[str] = Field(None, max_length=100)
+    db_username: Optional[str] = Field(None, max_length=100)
+    db_password: Optional[str] = Field(None, max_length=200)   # ว่าง = ใช้รหัสผ่านที่บันทึกไว้เดิม
+    # (รองรับแบบเดิม) ใส่เป็น URL ทั้งเส้น
+    db_url: Optional[str] = None
     user_table: Optional[str] = Field(None, max_length=100)
     username_column: Optional[str] = Field(None, max_length=100)
     full_name_column: Optional[str] = Field(None, max_length=100)
@@ -282,8 +290,14 @@ class HosxpConnectionConfigUpsertRequest(BaseModel):
 
 
 class HosxpConnectionConfigOut(BaseModel):
+    # ไม่ส่ง db_url / รหัสผ่านกลับไปหน้าเว็บ — บอกแค่ว่ามีรหัสผ่านบันทึกไว้หรือไม่
     id: int
-    db_url: str
+    db_type: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database: Optional[str] = None
+    db_username: Optional[str] = None
+    has_password: bool = False
     user_table: Optional[str]
     username_column: Optional[str]
     full_name_column: Optional[str]

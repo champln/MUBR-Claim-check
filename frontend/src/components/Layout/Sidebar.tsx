@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Upload, ClipboardList, BarChart3, Settings, SlidersHorizontal, Activity,
   UserCog, FileSearch, Wand2, Radio, Biohazard, HeartPulse, Pill, Stethoscope, Receipt,
-  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown, NotebookPen, ShieldCheck, History,
+  CalendarClock, CalendarCheck, BookOpen, FileCheck2, ChevronDown, NotebookPen, ShieldCheck, History, BedDouble, Tags,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { getAuthUser } from '../../lib/session'
@@ -19,7 +19,8 @@ const GROUPS: Group[] = [
     items: [
       { to: '/', icon: LayoutDashboard, label: 'แดชบอร์ด' },
       { to: '/upload', icon: Upload, label: 'นำเข้าข้อมูล' },
-      { to: '/live-prescreen', icon: Radio, label: 'Pre-screen สด' },
+      { to: '/live-prescreen', icon: Radio, label: 'Pre-screen สด ผู้ป่วยนอก' },
+      { to: '/live-prescreen-ipd', icon: BedDouble, label: 'Pre-screen สด ผู้ป่วยใน' },
       { to: '/batches', icon: ClipboardList, label: 'รายการส่งเบิก' },
       { to: '/claim-files', icon: FileSearch, label: 'ตรวจไฟล์ส่งเบิก' },
       { to: '/fix-history', icon: History, label: 'ประวัติการแก้ไฟล์' },
@@ -46,6 +47,7 @@ const GROUPS: Group[] = [
     items: [
       { to: '/cipn-fix', icon: FileCheck2, label: 'ClaimCat ยอดรวม AuthCode (30/31/35/36)' },
       { to: '/cipn-daterev', icon: CalendarCheck, label: 'DateRev และค่า HMAC (22)' },
+      { to: '/claimcat-master', icon: Tags, label: 'ทะเบียน ClaimCat (HOSxP)' },
     ],
   },
 ]

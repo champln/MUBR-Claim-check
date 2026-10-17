@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import inspect, text
+
+from services.hosxp_engine import get_engine
 
 
 class HosxpUserLookupError(Exception):
@@ -17,7 +19,7 @@ def _pick_column(columns: set[str], candidates: list[str]) -> Optional[str]:
 
 
 def discover_user_mapping(db_url: str) -> dict[str, Optional[str]]:
-    engine = create_engine(db_url)
+    engine = get_engine(db_url)
     insp = inspect(engine)
 
     table_candidates = [
@@ -65,7 +67,7 @@ def fetch_hosxp_users(
     if not user_table or not username_column:
         raise HosxpUserLookupError("ยังไม่ได้กำหนดตารางหรือคอลัมน์ผู้ใช้ของ HOSxP")
 
-    engine = create_engine(db_url)
+    engine = get_engine(db_url)
 
     select_name = f", {full_name_column} AS full_name" if full_name_column else ""
     select_active = f", {active_column} AS raw_active" if active_column else ""

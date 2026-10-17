@@ -82,19 +82,22 @@ def compute_totals(rows: List[List[str]]) -> Dict[str, Decimal]:
 
 
 # รายการ "ชำระส่วนเกิน" ที่ HOSxP โอนติดมาจากฝั่ง OPD — ผู้ป่วยจ่ายส่วนต่างเองแล้ว
-# ชื่อพบ 2 แบบ: "[ชำระส่วนเกิน] Blood lactate" และ "[ชำระเงิน-ส่วนเกิน] Magnesium"
-EXCESS_PREFIX_RE = re.compile(r"^\s*\[\s*ชำระ(?:เงิน)?\s*-?\s*ส่วนเกิน\s*\]\s*")
+# ชื่อใน HOSxP มีหลายแบบ: "[ชำระส่วนเกิน] Blood lactate", "Troponin I [ชำระเงิน-ส่วนเกิน]",
+# "Aerobic culture (ชำระเงิน/ส่วนเกิน)", "Ferritin [ส่วนเกิน]" — จับเครื่องหมายในวงเล็บได้ทุกตำแหน่ง
+EXCESS_MARK_RE = re.compile(r"\s*[\[(]\s*(?:ชำระ(?:เงิน)?\s*[-/]?\s*)?ส่วนเกิน\s*[\])]\s*")
+EXCESS_PREFIX_RE = EXCESS_MARK_RE   # ชื่อเดิม (คงไว้ให้โค้ดที่อ้างถึง)
 
 
 def is_excess_row(f: List[str]) -> bool:
-    return len(f) > F_DESC and bool(EXCESS_PREFIX_RE.match(f[F_DESC]))
+    return len(f) > F_DESC and bool(EXCESS_MARK_RE.search(f[F_DESC]))
 
 
 def find_main_row(bill: List[List[str]], excess: List[str]) -> Optional[List[str]]:
     """หารายการหลักของแถวส่วนเกิน: ชื่อเดียวกัน (ตัดคำนำหน้า) — วันเดียวกันก่อน"""
-    name = EXCESS_PREFIX_RE.sub("", excess[F_DESC]).strip().lower()
+    norm = lambda t: " ".join(t.split()).lower()  # noqa: E731  ช่องว่างซ้อนในชื่อรายการ
+    name = norm(EXCESS_MARK_RE.sub(" ", excess[F_DESC]))
     same = [f for f in bill if len(f) > F_DESC and not is_excess_row(f)
-            and f[F_DESC].strip().lower() == name]
+            and norm(f[F_DESC]) == name]
     same_day = [f for f in same if f[F_SERVDATE][:10] == excess[F_SERVDATE][:10]]
     return (same_day or same or [None])[0]
 
