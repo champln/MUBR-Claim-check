@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   FileCheck2, Upload, FileText, X, Search, Download, AlertTriangle, AlertCircle,
-  CheckCircle2, Calculator, Info, Trash2, KeyRound,
+  CheckCircle2, Calculator, Info, Trash2, KeyRound, ArrowLeftRight,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -94,6 +94,25 @@ export default function CipnFixPage() {
     .filter(r => !onlyFlagged || r.suggest_cat || picked[r.seq])
     .filter(r => !q || r.lccode.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q)
       || r.seq === q || r.billgrcs === q)
+
+  // ผลต่อยอดของแต่ละแถวที่เลือกเปลี่ยน / ลบ — แสดงก่อนกดยืนยัน
+  const effects: RowEffect[] = useMemo(() => {
+    if (!result) return []
+    const by = Object.fromEntries(result.rows.map(r => [r.seq, r]))
+    const out: RowEffect[] = []
+    for (const [seq, v] of Object.entries(picked)) {
+      const r = by[seq]
+      if (r && v.cat && v.cat !== r.claim_cat) out.push(rowEffect(r, v.cat, v.up))
+      else if (r && v.cat === 'T' && r.claim_cat === 'T') out.push(rowEffect(r, 'T', v.up))   // T เดิม แก้ราคาเบิก
+    }
+    for (const seq of toRemove) if (by[seq]) out.push(removeEffect(by[seq]))
+    return out.sort((a, b) => Number(a.seq) - Number(b.seq))
+  }, [result, picked, toRemove.join(',')])  // eslint-disable-line react-hooks/exhaustive-deps
+  const effectByseq = Object.fromEntries(effects.map(e => [e.seq, e]))
+  const sumDrg = r4(effects.reduce((s, e) => s + e.dDrg, 0))
+  const sumXdrg = r4(effects.reduce((s, e) => s + e.dXdrg, 0))
+  const sumOutside = r4(effects.reduce((s, e) => s + e.outside, 0))
+  const anyNeedUp = effects.some(e => e.needUp)
 
   const totalsMismatch = result && (
     result.totals.drg_charge_file !== result.totals.drg_charge_calc ||
@@ -220,17 +239,28 @@ export default function CipnFixPage() {
             </h3>
             <table className="text-sm">
               <thead className="text-xs text-gray-500">
-                <tr><th className="pr-8 text-left">ยอด</th><th className="pr-8 text-right">ในไฟล์</th><th className="text-right">คำนวณจากรายการ</th></tr>
+                <tr>
+                  <th className="pr-8 text-left">ยอด</th><th className="pr-8 text-right">ในไฟล์</th>
+                  <th className="pr-8 text-right">คำนวณจากรายการ</th>
+                  {effects.length > 0 && <><th className="pr-8 text-right">ย้าย/เปลี่ยน</th><th className="text-right">หลังแก้</th></>}
+                </tr>
               </thead>
               <tbody className="font-mono">
                 {([['DRGCharge', 'drg_charge_file', 'drg_charge_calc'],
                    ['XDRGClaim', 'xdrg_claim_file', 'xdrg_claim_calc']] as const).map(([label, fk, ck]) => {
                   const same = result.totals[fk] === result.totals[ck]
+                  const delta = label === 'DRGCharge' ? sumDrg : sumXdrg
                   return (
                     <tr key={label}>
                       <td className="pr-8 py-1 font-sans text-gray-700">{label}</td>
                       <td className={clsx('pr-8 py-1 text-right', same ? 'text-gray-600' : 'text-rose-600')}>{result.totals[fk] || '-'}</td>
-                      <td className={clsx('py-1 text-right', same ? 'text-gray-600' : 'text-emerald-700 font-semibold')}>{result.totals[ck]}</td>
+                      <td className={clsx('pr-8 py-1 text-right', same ? 'text-gray-600' : 'text-emerald-700 font-semibold')}>{result.totals[ck]}</td>
+                      {effects.length > 0 && (
+                        <>
+                          <td className="pr-8 py-1 text-right"><Delta v={delta} /></td>
+                          <td className="py-1 text-right font-semibold text-violet-800">{money(r4(num(result.totals[ck]) + delta))}</td>
+                        </>
+                      )}
                     </tr>
                   )
                 })}
@@ -240,6 +270,58 @@ export default function CipnFixPage() {
               <p className="text-xs text-rose-600 mt-2">
                 ยอดในไฟล์ไม่ตรงกับผลรวมรายการ — กดดาวน์โหลดเพื่อให้ระบบเขียนค่าที่คำนวณได้ลงไป
               </p>
+            )}
+
+            {effects.length > 0 && (
+              <div className="mt-4 border-t pt-3">
+                <h4 className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-violet-600" /> ยอดที่ย้ายตามแถวที่เลือก (ยังไม่ได้บันทึก — กดแก้ & ดาวน์โหลดเพื่อยืนยัน)
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs text-gray-500 border-b">
+                      <tr>
+                        <th className="pr-3 py-1 text-left">ลำดับ</th>
+                        <th className="pr-3 py-1 text-left">รายการ</th>
+                        <th className="pr-3 py-1 text-left">เปลี่ยน</th>
+                        <th className="pr-3 py-1 text-right">DRGCharge</th>
+                        <th className="pr-3 py-1 text-right">XDRGClaim</th>
+                        <th className="py-1 text-right" title="ส่วนที่เกินเพดานราคาเบิก (T) — ไม่เข้ายอดใด ผู้ป่วย/โรงพยาบาลรับเอง">ไม่เข้ายอด</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 font-mono">
+                      {effects.map(e => (
+                        <tr key={e.kind + e.seq}>
+                          <td className="pr-3 py-1 text-gray-500">{e.seq}</td>
+                          <td className="pr-3 py-1 font-sans truncate max-w-xs" title={e.desc}>{e.desc}</td>
+                          <td className="pr-3 py-1 font-sans whitespace-nowrap">
+                            {e.kind === 'remove'
+                              ? <span className="text-rose-600">ลบแถว ({e.from})</span>
+                              : <>{e.from} → <b>{e.to}</b></>}
+                            {e.needUp && <span className="ml-1.5 text-amber-600 text-xs">กรอกราคาเบิก/หน่วยก่อน</span>}
+                          </td>
+                          <td className="pr-3 py-1 text-right"><Delta v={e.dDrg} /></td>
+                          <td className="pr-3 py-1 text-right"><Delta v={e.dXdrg} /></td>
+                          <td className="py-1 text-right text-gray-500">{e.outside > 0.005 ? money(e.outside) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t font-mono font-semibold">
+                      <tr>
+                        <td colSpan={3} className="pr-3 py-1.5 font-sans text-gray-700">รวม</td>
+                        <td className="pr-3 py-1.5 text-right"><Delta v={sumDrg} /></td>
+                        <td className="pr-3 py-1.5 text-right"><Delta v={sumXdrg} /></td>
+                        <td className="py-1.5 text-right text-gray-500">{sumOutside > 0.005 ? money(sumOutside) : '—'}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  D นับเต็มยอด (ยอด − ส่วนลด) ใน DRGCharge · T นับแค่ min(ยอดขอเบิก, ยอด) ใน XDRGClaim —
+                  ส่วนที่เกินเพดานราคาเบิกจึง “ไม่เข้ายอด” ใด ยอดรวมหลังแก้อาจน้อยกว่าก่อนแก้ได้ ซึ่งตรงกับที่ สกส. คำนวณ
+                  {anyNeedUp && <span className="block text-amber-700">แถวที่เปลี่ยนเป็น T แต่ยังไม่กรอกราคาเบิก/หน่วย คิด XDRGClaim เป็น 0 ไว้ก่อน</span>}
+                </p>
+              </div>
             )}
           </div>
 
@@ -353,6 +435,7 @@ export default function CipnFixPage() {
                     <th className="px-3 py-2 text-right">ยอดขอเบิก</th>
                     <th className="px-3 py-2 text-left">ปัจจุบัน</th>
                     <th className="px-3 py-2 text-left">เปลี่ยนเป็น</th>
+                    <th className="px-3 py-2 text-right normal-case">ผลต่อยอด</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -394,11 +477,22 @@ export default function CipnFixPage() {
                             )}
                           </div>
                         </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap">
+                          {effectByseq[r.seq] ? (
+                            <>
+                              <div>DRG <Delta v={effectByseq[r.seq].dDrg} /></div>
+                              <div>XDRG <Delta v={effectByseq[r.seq].dXdrg} /></div>
+                              {effectByseq[r.seq].outside > 0.005 && (
+                                <div className="text-gray-400" title="เกินเพดานราคาเบิก ไม่เข้ายอดใด">เกินเพดาน {money(effectByseq[r.seq].outside)}</div>
+                              )}
+                            </>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
                       </tr>
                     )
                   })}
                   {rows.length === 0 && (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                       {onlyFlagged ? 'ไม่มีแถวที่ระบบสงสัย — เอาเครื่องหมายถูกออกเพื่อดูทุกแถว' : 'ไม่พบรายการ'}
                     </td></tr>
                   )}
@@ -417,6 +511,59 @@ export default function CipnFixPage() {
       <FixHistoryPanel menu="cipn-fix" />
     </div>
   )
+}
+
+// ── ยอดที่แถวหนึ่งนับเข้า DRGCharge / XDRGClaim (สูตรเดียวกับ backend compute_totals) ──
+//   D : DRGCharge += net (ยอด − ส่วนลด) · T : XDRGClaim += min(ยอดขอเบิก, net) · X : ไม่นับ
+const num = (v: string | number | undefined) => {
+  const n = Number(String(v ?? '').replace(/,/g, '').trim() || 0)
+  return Number.isFinite(n) ? n : NaN
+}
+const r4 = (n: number) => Math.round(n * 10000) / 10000
+
+function contribution(cat: string, net: number, claimAmt: number) {
+  if (cat === 'D') return { drg: net, xdrg: 0, outside: 0 }
+  if (cat === 'T') {
+    const x = Math.min(claimAmt, net)
+    return { drg: 0, xdrg: x, outside: Math.max(0, net - x) }   // outside = ส่วนเกินเพดาน ไม่เข้ายอดไหน
+  }
+  return { drg: 0, xdrg: 0, outside: net }
+}
+
+type RowEffect = {
+  seq: string; desc: string; kind: 'change' | 'remove'
+  from: string; to: string
+  dDrg: number; dXdrg: number; outside: number
+  needUp?: boolean
+}
+
+function rowEffect(r: CipnValidateResult['rows'][number], to: string, up: string): RowEffect {
+  const net = num(r.charge_amt) - num(r.discount)
+  const before = contribution(r.claim_cat, net, num(r.claim_amt))
+  const needUp = to === 'T' && (up.trim() === '' || Number.isNaN(num(up)))
+  const claimAfter = to === 'T' ? (needUp ? 0 : num(up) * num(r.qty)) : 0
+  const after = contribution(to, net, claimAfter)
+  return {
+    seq: r.seq, desc: r.desc, kind: 'change', from: r.claim_cat, to,
+    dDrg: r4(after.drg - before.drg), dXdrg: r4(after.xdrg - before.xdrg),
+    outside: r4(to === 'T' && !needUp ? after.outside : 0), needUp,
+  }
+}
+
+function removeEffect(r: CipnValidateResult['rows'][number]): RowEffect {
+  const net = num(r.charge_amt) - num(r.discount)
+  const before = contribution(r.claim_cat, net, num(r.claim_amt))
+  return {
+    seq: r.seq, desc: r.desc, kind: 'remove', from: r.claim_cat, to: 'ลบ',
+    dDrg: r4(-before.drg), dXdrg: r4(-before.xdrg), outside: 0,
+  }
+}
+
+const money = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function Delta({ v }: { v: number }) {
+  if (Math.abs(v) < 0.005) return <span className="text-gray-300">—</span>
+  return <span className={v > 0 ? 'text-emerald-700' : 'text-rose-600'}>{v > 0 ? '+' : '−'}{money(Math.abs(v))}</span>
 }
 
 function SummaryBox({ label, value, tone, icon }: {
