@@ -112,7 +112,7 @@ LIVE_REQUIREMENTS = [
     ("ผู้ป่วยใน (เมนูผู้ป่วยใน)", False, {
         "ipt": ["an", "hn", "regdate", "dchdate", "pttype", "ward", "spclty", "admdoctor", "dch_doctor",
                 "drg", "rw", "adjrw"],
-        "an_stat": ["an", "los", "item_money"],
+        "an_stat": ["an", "admdate", "item_money"],
         "iptdiag": ["an", "icd10", "diagtype"],
         "ipt_pttype": ["an", "auth_code"],
         "ward": ["ward", "name"],

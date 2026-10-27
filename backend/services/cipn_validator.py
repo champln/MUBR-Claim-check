@@ -225,6 +225,57 @@ def _fmt(v: Decimal) -> str:
     return f"{v.quantize(Decimal('0.0001')):.4f}"
 
 
+# ── ค่าห้องและ ClaimCat (เกณฑ์ ศกพ.) ─────────────────────────────────────────────
+#   ห้องพิเศษ  ศกพ.คิด 1,400/คืน · เบิกจ่ายตรง (กบก./อปท./กทม.) เบิก 1,000 นอก DRG (T)
+#                                · ปกส.รามา พนง. เบิก 400 รวมใน DRG (D)
+#   ห้องสามัญ  ศกพ.คิด   500/คืน · เบิกจ่ายตรง เบิก 400 นอก DRG (T) · ปกส.รามา เบิก 400 รวมใน DRG (D)
+# รายการห้องรู้จากรหัส HOSxP (LCCode) หรือรหัสมาตรฐาน (CSCode) — ไม่นับแถว [ชำระส่วนเกิน]
+ROOM_KINDS = {
+    "special": {"label": "ห้องพิเศษ", "lccodes": {"3004319"}, "cscodes": {"21201"},
+                "hosp_price": Decimal("1400"), "direct_up": Decimal("1000")},
+    "general": {"label": "ห้องสามัญ", "lccodes": {"3004317"}, "cscodes": {"21101"},
+                "hosp_price": Decimal("500"), "direct_up": Decimal("400")},
+}
+# ชื่อรายการที่ HOSxP ระบุว่าเบิกไม่ได้ / ใช้ไม่ตรงข้อบ่งชี้ -> ClaimCat X (ไม่ขอเบิก)
+NOT_CLAIMABLE_RE = re.compile(r"เบิกไม่ได้|ไม่ตรงข้อบ่งชี้")
+SSO_RAMA_ROOM_UP = Decimal("400")   # ปกส.รามา เบิกได้คืนละ 400 (รวมใน DRG)
+RAMA_HMAIN = "13781"                # โรงพยาบาลรามาธิบดี — Hmain ของไฟล์ AIPN ประกันสังคมพนักงานรามา
+PAYER_LABEL = {"direct": "สิทธิเบิกจ่ายตรง (กบก./อปท./กทม.)", "sso_rama": "ปกส.รามา พนักงาน"}
+
+
+def payer_group(text: str) -> str:
+    """
+    กลุ่มสิทธิของไฟล์ — 'direct' = CIPN (เบิกจ่ายตรง), 'sso_rama' = AIPN ที่ Hmain เป็นรามาธิบดี
+    ไม่รู้ = '' (ไม่ใช้กฏค่าห้อง)
+    """
+    doc = (re.search(r"<DocSysID[^>]*>([^<]*)</DocSysID>", text) or [None, ""])[1].strip().upper()
+    hmain = (re.search(r"<Hmain>([^<]*)</Hmain>", text) or [None, ""])[1].strip()
+    if doc == "CIPN":
+        return "direct"
+    if doc == "AIPN" and hmain == RAMA_HMAIN:
+        return "sso_rama"
+    return ""
+
+
+def room_kind(f: List[str]) -> str:
+    if len(f) < BILLITEM_FIELDS or is_excess_row(f):
+        return ""
+    lc, cs = f[F_LCCODE].strip(), f[F_CSCODE].strip()
+    for kind, k in ROOM_KINDS.items():
+        if lc in k["lccodes"] or cs in k["cscodes"]:
+            return kind
+    return ""
+
+
+def room_expectation(kind: str, payer: str) -> Optional[tuple]:
+    """(ClaimCat ที่ต้องเป็น, ClaimUP ที่ต้องเป็น, ราคาต่อหน่วยที่ควรเห็นในไฟล์ หรือ None)"""
+    if not kind or not payer:
+        return None
+    if payer == "direct":
+        return "T", ROOM_KINDS[kind]["direct_up"], None
+    return "D", Decimal(0), SSO_RAMA_ROOM_UP
+
+
 def validate(raw: bytes) -> dict:
     """ตรวจไฟล์ทั้งฉบับ — คืนรายการปัญหาพร้อมข้อเสนอแนะ (ไม่แก้ไฟล์)"""
     findings: List[dict] = []
@@ -250,6 +301,7 @@ def validate(raw: bytes) -> dict:
                 f"{section}: Reccount ระบุ {m.group(1)} แต่มีจริง {len(rows)} แถว", where=section))
 
     bill = _rows(text, "BillItems")
+    payer = payer_group(text)
 
     # เลขอนุมัตินอนโรงพยาบาล (ClaimAuth)
     findings.extend(_auth_findings(raw))
@@ -281,6 +333,9 @@ def validate(raw: bytes) -> dict:
         amt, disc = _dec(f[F_CHARGEAMT]), _dec(f[F_DISCOUNT])
         claim_up, claim_amt = _dec(f[F_CLAIMUP]), _dec(f[F_CLAIMAMT])
         suggest = ""
+        suggest_up = ""
+        kind = room_kind(f)
+        room_rule = room_expectation(kind, payer)
 
         if cat not in VALID_CLAIMCAT:
             findings.append(_finding("30", "ERROR", f"ClaimCat = '{cat}' (ต้องเป็น T, D หรือ X)", where=where))
@@ -290,10 +345,44 @@ def validate(raw: bytes) -> dict:
                 "30", "WARNING",
                 f"ยอดรวมไม่เท่าจำนวน x ราคาต่อหน่วย ({qty} x {up} = {qty * up} แต่ระบุ {amt})", where=where))
 
-        if cat == "D" and claim_up is not None and claim_up != 0:
+        if cat == "D" and claim_up is not None and claim_up != 0 and not room_rule:
             findings.append(_finding(
                 "35", "ERROR", f"แถวเบิกรวมใน DRG (D) แต่มีราคาเบิกต่อหน่วย {f[F_CLAIMUP]} (ต้องเป็น 0.00)",
                 where=where, suggest="ตั้ง ClaimUP/ClaimAmt เป็น 0"))
+            suggest = "D"
+
+        # ค่าห้อง: ClaimCat / ราคาเบิกตามกลุ่มสิทธิ (เกณฑ์ ศกพ.) — ใช้แทนกฏทั่วไปของหมวด 01
+        if room_rule:
+            want_cat, want_up, want_unit = room_rule
+            label = ROOM_KINDS[kind]["label"]
+            who = PAYER_LABEL[payer]
+            if want_cat == "T":
+                rule_txt = (f"{label} {who} เบิกได้คืนละ {want_up:,.0f} บาท นอก DRG (ClaimCat T) "
+                            f"— ศกพ.คิด {ROOM_KINDS[kind]['hosp_price']:,.0f} ส่วนต่างเป็นชำระส่วนเกิน")
+            else:
+                rule_txt = f"{label} {who} เบิกได้คืนละ {SSO_RAMA_ROOM_UP:,.0f} บาท รวมใน DRG (ClaimCat D, ClaimUP 0)"
+            wrong_cat = cat != want_cat
+            wrong_up = claim_up is None or claim_up != want_up
+            if wrong_cat or wrong_up:
+                now = f"ตอนนี้ {cat or '-'} / ราคาเบิก {f[F_CLAIMUP].strip() or '-'}"
+                findings.append(_finding(
+                    "35" if want_cat == "D" else "36", "ERROR", f"ค่าห้อง: {rule_txt} — {now}",
+                    where=where,
+                    suggest=f"เปลี่ยนเป็น {want_cat}" + (f" ราคาเบิก {want_up:,.0f}/คืน" if want_cat == "T" else "")))
+                suggest = want_cat
+                suggest_up = _fmt(want_up) if want_cat == "T" else ""
+            if want_unit is not None and up is not None and up != want_unit:
+                findings.append(_finding(
+                    "ค่าห้อง", "WARNING",
+                    f"ค่าห้อง: {rule_txt} — ราคาต่อหน่วยในไฟล์ {f[F_UNITPRICE].strip()} (ควรเป็น {want_unit:,.0f} "
+                    "ส่วนที่เกินแยกเป็นรายการชำระส่วนเกิน) ตรวจใน HOSxP แล้วดึงไฟล์ใหม่",
+                    where=where))
+            if want_cat == "T" and up is not None and up > want_up and not wrong_up:
+                findings.append(_finding(
+                    "ค่าห้อง", "WARNING",
+                    f"ค่าห้อง: ราคาต่อหน่วยในไฟล์ {f[F_UNITPRICE].strip()} เกินอัตราเบิก {want_up:,.0f} — "
+                    "ระบบนับเบิกแค่ราคาเบิก ส่วนที่เกินควรแยกเป็นรายการชำระส่วนเกินใน HOSxP",
+                    where=where))
 
         if cat == "T":
             if None not in (qty, claim_up, claim_amt) and abs(qty * claim_up - claim_amt) > Decimal("0.01"):
@@ -301,14 +390,29 @@ def validate(raw: bytes) -> dict:
                     "36", "ERROR",
                     f"ยอดขอเบิกไม่เท่าจำนวน x ราคาเบิก ({qty} x {claim_up} = {qty * claim_up} แต่ระบุ {claim_amt})",
                     where=where))
-            if (claim_up or Decimal(0)) == 0 and billgrcs not in BILLGRCS_T:
-                suggest = "D"
+            # T ได้เฉพาะหมวด 01 ห้อง/อาหาร และ 02 อวัยวะเทียม/อุปกรณ์ — หมวดอื่นถูกนับเข้า XDRGClaim
+            # ทั้งที่ควรรวมใน DRG (ตรวจทุกแถว ไม่ว่าจะมีราคาเบิกหรือไม่ เช่น Hypo-hyperthermia T @200)
+            if billgrcs not in BILLGRCS_T and not room_rule:
+                suggest = "X" if NOT_CLAIMABLE_RE.search(f[F_DESC]) else "D"
+                has_up = (claim_up or Decimal(0)) != 0
                 findings.append(_finding(
                     "36", "WARNING",
-                    f"เบิกแยกนอก DRG (T) แต่ไม่มีราคาเบิก และอยู่หมวด {billgrcs} ที่ปกติเบิกรวมใน DRG",
-                    where=where, suggest="ควรเป็น D"))
+                    f"เบิกแยกนอก DRG (T{f' ราคาเบิก {f[F_CLAIMUP].strip()}' if has_up else ' แต่ไม่มีราคาเบิก'}) "
+                    f"แต่อยู่หมวด {billgrcs} — นอก DRG ได้เฉพาะหมวด 01 ห้อง/อาหาร และ 02 อวัยวะเทียม/อุปกรณ์"
+                    + (" · ชื่อรายการระบุว่าเบิกไม่ได้/ไม่ตรงข้อบ่งชี้" if suggest == "X" else ""),
+                    where=where, suggest=f"ควรเป็น {suggest}"))
 
-        if cat == "D" and billgrcs in BILLGRCS_T:
+        # รายการที่ชื่อระบุว่าเบิกไม่ได้ / ไม่ตรงข้อบ่งชี้ แต่ยังนับเข้ายอด (D) — ควรเป็น X (ไม่ขอเบิก)
+        if cat == "D" and NOT_CLAIMABLE_RE.search(f[F_DESC]) and not is_excess_row(f):
+            suggest = "X"
+            findings.append(_finding(
+                "ไม่ขอเบิก", "WARNING",
+                f"ชื่อรายการระบุว่าเบิกไม่ได้/ไม่ตรงข้อบ่งชี้ ({f[F_DESC].strip()[:60]}) แต่เป็น D (นับเข้า DRGCharge)",
+                where=where, suggest="ควรเป็น X"))
+
+        # ปกส.รามา: ค่าห้องเบิกรวมใน DRG (D) ได้ตามเกณฑ์ — ไม่ใช้กฏทั่วไป "หมวด 01 ควรเป็น T"
+        if cat == "D" and billgrcs in BILLGRCS_T and not room_rule \
+                and not (payer == "sso_rama" and billgrcs == "01"):
             suggest = "T"
             findings.append(_finding(
                 "35", "WARNING",
@@ -355,6 +459,8 @@ def validate(raw: bytes) -> dict:
             "claim_up": f[F_CLAIMUP].strip(),
             "claim_amt": f[F_CLAIMAMT].strip(),
             "suggest_cat": suggest,
+            "suggest_up": suggest_up,
+            "room_kind": kind,
         })
 
     # ยอดรวมท้ายไฟล์
@@ -388,6 +494,8 @@ def validate(raw: bytes) -> dict:
         },
         "signature_ok": sig_ok,
         "auth": read_auth(raw),
+        "payer": payer,
+        "payer_label": PAYER_LABEL.get(payer, ""),
         "error_count": sum(1 for f in findings if f["severity"] == "ERROR"),
         "warning_count": sum(1 for f in findings if f["severity"] == "WARNING"),
         "can_fix": True,

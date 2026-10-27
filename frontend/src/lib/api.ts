@@ -1024,6 +1024,8 @@ export interface CipnBillRow {
   claim_up: string
   claim_amt: string
   suggest_cat: string
+  suggest_up?: string   // ราคาเบิก/หน่วยที่แนะนำ (ค่าห้องตามเกณฑ์ ศกพ.)
+  room_kind?: '' | 'special' | 'general'
   is_excess?: boolean   // แถว "[ชำระส่วนเกิน] ..." ที่ต้องลบออกจากไฟล์เบิก
   main_seq?: string     // ลำดับของรายการหลัก (ชื่อเดียวกัน)
   excess_allowed?: boolean  // ส่วนเกินหมวด 01/02 ที่ระเบียบ IPD ให้เก็บได้ — ตรวจก่อนลบ
@@ -1031,6 +1033,8 @@ export interface CipnBillRow {
 
 export interface CipnValidateResult {
   file: string
+  payer?: '' | 'direct' | 'sso_rama'   // กลุ่มสิทธิของไฟล์ (ใช้กฏค่าห้อง)
+  payer_label?: string
   findings: CipnFinding[]
   rows: CipnBillRow[]
   totals: {

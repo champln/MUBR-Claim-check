@@ -114,6 +114,14 @@ export default function CipnFixPage() {
   const sumOutside = r4(effects.reduce((s, e) => s + e.outside, 0))
   const anyNeedUp = effects.some(e => e.needUp)
 
+  // แถวที่ระบบแนะนำ ClaimCat / ราคาเบิก (เช่น ค่าห้องตามเกณฑ์ ศกพ.) — กดทีเดียวเลือกให้ครบ
+  const suggestedRows = (result?.rows || []).filter(r => !r.is_excess && r.suggest_cat)
+  const applySuggestions = () => setPicked(p => {
+    const n = { ...p }
+    for (const r of suggestedRows) n[r.seq] = { cat: r.suggest_cat, up: r.suggest_up ? String(Number(r.suggest_up)) : (p[r.seq]?.up || '') }
+    return n
+  })
+
   const totalsMismatch = result && (
     result.totals.drg_charge_file !== result.totals.drg_charge_calc ||
     result.totals.xdrg_claim_file !== result.totals.xdrg_claim_calc)
@@ -411,6 +419,15 @@ export default function CipnFixPage() {
           <div className="card overflow-hidden">
             <div className="px-4 py-2.5 border-b bg-gray-50 flex flex-wrap items-center gap-3">
               <h3 className="font-semibold text-gray-800 text-sm">รายการค่ารักษา</h3>
+              {result.payer_label && (
+                <span className="text-xs bg-violet-100 text-violet-800 rounded-full px-2 py-0.5">{result.payer_label}</span>
+              )}
+              {suggestedRows.length > 0 && (
+                <button type="button" onClick={applySuggestions}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 bg-white hover:bg-violet-50">
+                  ใช้ค่าที่ระบบแนะนำ ({suggestedRows.length} แถว)
+                </button>
+              )}
               <label className="text-xs text-gray-600 flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={onlyFlagged} onChange={e => setOnlyFlagged(e.target.checked)}
                   className="w-3.5 h-3.5 rounded border-gray-300 text-violet-600" />
@@ -457,13 +474,22 @@ export default function CipnFixPage() {
                             {r.claim_cat}
                           </span>
                           {r.suggest_cat && (
-                            <span className="text-[13px] text-amber-700 ml-1.5">ควรเป็น {r.suggest_cat}</span>
+                            <span className="text-[13px] text-amber-700 ml-1.5">
+                              ควรเป็น {r.suggest_cat}
+                              {r.suggest_up ? ` @${Number(r.suggest_up).toLocaleString()}` : r.suggest_cat === 'D' && r.claim_cat === 'D' ? ' (ราคาเบิก 0)' : ''}
+                            </span>
+                          )}
+                          {r.room_kind && (
+                            <span className="block text-[12px] text-violet-600">{r.room_kind === 'special' ? 'ห้องพิเศษ' : 'ห้องสามัญ'}</span>
                           )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
                             <select value={pick?.cat || ''}
-                              onChange={e => setPicked(p => ({ ...p, [r.seq]: { cat: e.target.value, up: p[r.seq]?.up || '' } }))}
+                              onChange={e => setPicked(p => ({ ...p, [r.seq]: {
+                                cat: e.target.value,
+                                up: p[r.seq]?.up || (e.target.value === 'T' && r.suggest_up ? String(Number(r.suggest_up)) : ''),
+                              } }))}
                               className="border border-gray-300 rounded px-2 py-1 text-sm bg-white">
                               <option value="">— ไม่เปลี่ยน —</option>
                               {Object.entries(CAT_LABEL).map(([k, label]) => (

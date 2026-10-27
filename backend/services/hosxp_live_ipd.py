@@ -9,7 +9,7 @@
   ipt          : an, hn, vn, regdate/regtime, dchdate/dchtime, pttype, ward, spclty, admdoctor,
                  dch_doctor, drg, rw, adjrw
   patient      : cid, ชื่อ, วันเกิด, เพศ
-  an_stat      : los, item_money (ค่าใช้จ่ายรวม), pdx (สำรอง)
+  an_stat      : admdate (วันนอนจริง), item_money (ค่าใช้จ่ายรวม), pdx (สำรอง)
   iptdiag      : icd10, diagtype ('1' = โรคหลัก)
   ipt_pttype   : auth_code (เลขอนุมัตินอนโรงพยาบาล -> CIPN ClaimAuth/AuthCode)
   opitemrece + nondrugitems : รายการชำระส่วนเกินที่โอนติดมา (an = ผู้ป่วยรายนี้)
@@ -38,7 +38,100 @@ CIPN_HIPDATA = {"OFC"}
 CLAIMCAT_T_INCOME = {"01", "02"}
 
 # กฎที่ใช้ได้เฉพาะเมื่อจำหน่ายแล้ว — โหมด "ยังนอนอยู่" ไม่ต้องตรวจ
-DISCHARGE_ONLY_CODES = {"DATE003", "DATE004", "DRG001", "DRG002", "ICD001", "ICD005", "AMT001"}
+DISCHARGE_ONLY_CODES = {"DATE003", "DATE004", "DRG001", "DRG002", "ICD001", "ICD005", "AMT001", "ROOM02"}
+
+# ── ค่าห้องตามกลุ่มสิทธิ (เกณฑ์ ศกพ.) — ROOM01 ราคา/การแยกส่วนเกิน · ROOM02 จำนวนคืนไม่ตรงวันนอน ──
+#   ห้องพิเศษ ศกพ.คิด 1,400 · เบิกจ่ายตรง (กบก./อปท./กทม.) เบิก 1,000 นอก DRG (T) ส่วนเกิน 400
+#                            · ปกส.รามา พนง. เบิก 400 รวมใน DRG (D) ส่วนเกิน 1,000
+#   ห้องสามัญ ศกพ.คิด   500 · เบิกจ่ายตรง เบิก 400 นอก DRG (T) ส่วนเกิน 100
+#                            · ปกส.รามา เบิก 400 รวมใน DRG (D) ส่วนเกิน 100
+ROOM_ITEMS = {
+    "3004319": {"kind": "special", "label": "ห้องพิเศษ"},
+    "3004317": {"kind": "general", "label": "ห้องสามัญ"},
+}
+ROOM_RULES = {
+    # (กลุ่มสิทธิ, ประเภทห้อง): (ราคาเบิก/คืน, ClaimCat, {icode รายการส่วนเกินที่ถูก: ราคา})
+    ("direct", "special"): (1000, "T", {"3004321": 400}),
+    ("direct", "general"): (400, "T", {"3004318": 100}),
+    ("sso_rama", "special"): (400, "D", {"3008823": 1000}),
+    ("sso_rama", "general"): (400, "D", {"3008822": 100}),
+}
+ROOM_EXCESS_ICODES = {"3004321", "3004318", "3008823", "3008822"}
+DIRECT_HIPDATA = {"OFC", "LGO", "BKK"}
+PAYER_LABEL = {"direct": "สิทธิเบิกจ่ายตรง", "sso_rama": "ปกส.รามา พนักงาน"}
+
+
+def room_payer(hipdata: str, pttype_name: str) -> str:
+    hip = hipdata.upper()
+    if hip in DIRECT_HIPDATA:
+        return "direct"
+    if hip == "SSS" and "รามา" in pttype_name:
+        return "sso_rama"
+    return ""
+
+
+def _room_issues(rows: list, payer: str, los: Any, discharged: bool) -> list:
+    """rows = [{icode, unitprice, paidst, qty}] ของค่าห้องหลัก + ส่วนเกินค่าห้อง ใน AN เดียว"""
+    out: list = []
+    if not payer:
+        return out
+    who = PAYER_LABEL[payer]
+    main_qty = 0.0
+    excess_qty: dict[str, float] = {}
+    for r in rows:
+        ic = _s(r["icode"])
+        qty = float(r["qty"] or 0)
+        if ic in ROOM_EXCESS_ICODES:
+            excess_qty[ic] = excess_qty.get(ic, 0) + qty
+    # รายการส่วนเกินค่าห้องของอีกกลุ่มสิทธิ (เช่น ปกส.รามา ใช้ 3004321 ของเบิกจ่ายตรง)
+    payer_codes = {k for (p, _), (_, _, ex) in ROOM_RULES.items() if p == payer for k in ex}
+    wrong_codes = sorted(x for x, q in excess_qty.items() if q > 0 and x not in payer_codes)
+    if wrong_codes and any(_s(r["icode"]) in ROOM_ITEMS for r in rows):
+        right = sorted({f"{k} ({v:,} บาท)" for (p, _), (_, _, ex) in ROOM_RULES.items() if p == payer
+                        for k, v in ex.items()})
+        out.append(_issue(
+            "ROOM01", "AMOUNT", "room_excess",
+            f"{who}: ใช้รายการส่วนเกินค่าห้องของอีกกลุ่มสิทธิ (รหัส {', '.join(wrong_codes)}) — "
+            f"กลุ่มนี้ใช้รหัส {', '.join(right)}",
+            severity="WARNING"))
+    for r in rows:
+        ic = _s(r["icode"])
+        item = ROOM_ITEMS.get(ic)
+        if not item:
+            continue
+        rate, cat, excess_ok = ROOM_RULES[(payer, item["kind"])]
+        up = float(r["unitprice"] or 0)
+        qty = float(r["qty"] or 0)
+        paid = _s(r["paidst"])
+        main_qty += qty
+        if paid == "03":
+            continue   # ผู้ป่วยชำระเองทั้งหมด ไม่ได้ส่งเบิก
+        rule = (f"{item['label']} {who} เบิกได้คืนละ {rate:,} บาท "
+                + ("นอก DRG (ClaimCat T)" if cat == "T" else "รวมใน DRG (ClaimCat D)"))
+        if abs(up - rate) > 0.01:
+            out.append(_issue(
+                "ROOM01", "AMOUNT", "room_price",
+                f"{rule} แต่คิดเป็นลูกหนี้คืนละ {up:,.0f} บาท ({qty:,.0f} คืน) — "
+                + ("ส่วนที่เกินต้องแยกเป็นรายการชำระส่วนเกินค่าห้อง" if up > rate else "ราคาต่ำกว่าอัตราเบิก ตรวจรายการค่าห้อง"),
+                severity="ERROR" if up > rate else "WARNING", current_value=f"{up:,.0f}"))
+        got = sum(excess_qty.get(x, 0) for x in excess_ok)
+        if got + 0.001 < qty and not wrong_codes:
+            out.append(_issue(
+                "ROOM01", "AMOUNT", "room_excess",
+                f"{rule} — ส่วนเกินค่าห้อง {', '.join(f'{v:,} บาท' for v in excess_ok.values())}/คืน "
+                f"คิดไว้ {got:,.0f} คืน จาก {qty:,.0f} คืน (ศกพ.คิดเต็มราคา ส่วนต่างต้องเก็บเป็นชำระส่วนเกิน)",
+                severity="WARNING", current_value=f"{got:,.0f}/{qty:,.0f}"))
+    if discharged and main_qty and los is not None:
+        try:
+            nights = float(los)
+        except (TypeError, ValueError):
+            nights = None
+        if nights is not None and abs(main_qty - nights) > 0.001 and nights > 0:
+            out.append(_issue(
+                "ROOM02", "AMOUNT", "room_qty",
+                f"ค่าห้องคิด {main_qty:,.0f} คืน แต่วันนอน {nights:,.0f} วัน — ตรวจจำนวนคืนค่าห้อง",
+                severity="WARNING", current_value=f"{main_qty:,.0f}"))
+    return out
 
 
 def _rows(conn, sql: str, params: dict, expand: tuple = ()) -> list:
@@ -91,7 +184,7 @@ def fetch_live_ipd_records(
             q = {"ans": ans}
 
             stat = {_s(r["an"]): r for r in _optional(
-                conn, "SELECT an, los, item_money, pdx FROM an_stat WHERE an IN :ans", q, ("ans",))}
+                conn, "SELECT an, admdate, item_money, pdx FROM an_stat WHERE an IN :ans", q, ("ans",))}
             dx_rows = _optional(conn, "SELECT an, icd10, diagtype FROM iptdiag WHERE an IN :ans "
                                       "ORDER BY an, diagtype", q, ("ans",))
             auth = {}
@@ -113,6 +206,13 @@ def fetch_live_ipd_records(
                 "AND COALESCE(n.income, '') NOT IN ('01', '02') "
                 "GROUP BY oi.an, n.icode, n.name, n.income",
                 q, ("ans",))
+
+            rooms = _optional(
+                conn,
+                "SELECT oi.an, oi.icode, oi.unitprice, oi.paidst, SUM(oi.qty) AS qty "
+                "FROM opitemrece oi WHERE oi.an IN :ans AND oi.icode IN :rc "
+                "GROUP BY oi.an, oi.icode, oi.unitprice, oi.paidst",
+                {**q, "rc": sorted(set(ROOM_ITEMS) | ROOM_EXCESS_ICODES)}, ("ans", "rc"))
 
             ned_ef = _optional(
                 conn,
@@ -164,6 +264,10 @@ def fetch_live_ipd_records(
     for r in excess:
         excess_by_an.setdefault(_s(r["an"]), []).append(r)
 
+    rooms_by_an: dict[str, list] = {}
+    for r in rooms:
+        rooms_by_an.setdefault(_s(r["an"]), []).append(r)
+
     today = date.today()
     out: list[dict[str, Any]] = []
     for a in adms:
@@ -172,7 +276,8 @@ def fetch_live_ipd_records(
         d = dx.get(an, {"pdx": [], "adx": []})
         ptr = pt.get(_s(a["pttype"]), {})
         regdate, dchdate = a.get("regdate"), a.get("dchdate")
-        los = st.get("los")
+        # an_stat.admdate = จำนวนวันนอนจริง (an_stat.los เป็นวันนอนเฉลี่ยของ DRG ไม่ใช่ของผู้ป่วย)
+        los = st.get("admdate")
         if los is None and regdate and dchdate:
             los = (dchdate - regdate).days
         birthday = a.get("birthday")
@@ -217,6 +322,12 @@ def fetch_live_ipd_records(
                 "G04", "DRUG", "ned_reason",
                 f"ยา {_s(x['drug_name'])} เหตุผลการใช้ยานอกบัญชีเป็น EF (ผู้ป่วยแสดงความจำนง = เบิกไม่ได้) "
                 "แต่คิดเป็นลูกหนี้สิทธิ — เปลี่ยนเหตุผลตามที่แพทย์สรุป หรือเปลี่ยนเป็นชำระเอง"))
+
+        # ค่าห้องตามกลุ่มสิทธิ (เกณฑ์ ศกพ.)
+        issues.extend(_room_issues(
+            rooms_by_an.get(an, []),
+            room_payer(_s(ptr.get("hipdata_code")), _s(ptr.get("name"))),
+            los, bool(dchdate)))
 
         # ClaimCat T นอกหมวด 01/02 -> CIPN มักติด 36
         for x in claimcat_by_an.get(an, []):
