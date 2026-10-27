@@ -242,6 +242,23 @@ SSO_RAMA_ROOM_UP = Decimal("400")   # ปกส.รามา เบิกได�
 RAMA_HMAIN = "13781"                # โรงพยาบาลรามาธิบดี — Hmain ของไฟล์ AIPN ประกันสังคมพนักงานรามา
 PAYER_LABEL = {"direct": "สิทธิเบิกจ่ายตรง (กบก./อปท./กทม.)", "sso_rama": "ปกส.รามา พนักงาน"}
 
+# รายการอุปกรณ์ที่เบิกได้เฉพาะข้อบ่งชี้ — ใช้นอกข้อบ่งชี้ให้คง ClaimCat T แต่ขอเบิก 0 (ClaimUP/ClaimAmt = 0)
+#   ข้อบ่งชี้ดูจากหัตถการใน IPOp (ICD-9-CM ไม่มีจุด เทียบด้วย prefix) — เป็นกรณีไป จึงเตือนให้คนตัดสิน
+INDICATION_ITEMS = [
+    {"name_re": re.compile(r"harmonic", re.I), "label": "ผ่าตัดแบบส่องกล้องบริเวณคอเท่านั้น",
+     # 06 ต่อมไทรอยด์/พาราไทรอยด์ · 26 ต่อมน้ำลาย · 404 neck dissection
+     "icd9_prefixes": ("06", "26", "404")},
+]
+# ชื่อรายการที่วงเล็บระบุข้อจำกัด "...เท่านั้น" แต่ยังไม่มีในตาราง — เตือนให้ตรวจเอง
+LIMITED_USE_RE = re.compile(r"\(([^()]*เท่านั้น)\)")
+
+
+def indication_item(desc: str) -> Optional[dict]:
+    for item in INDICATION_ITEMS:
+        if item["name_re"].search(desc):
+            return item
+    return None
+
 
 def payer_group(text: str) -> str:
     """
@@ -302,6 +319,7 @@ def validate(raw: bytes) -> dict:
 
     bill = _rows(text, "BillItems")
     payer = payer_group(text)
+    op_codes = [o[2].strip().replace(".", "") for o in _rows(text, "IPOp") if len(o) > 2]
 
     # เลขอนุมัตินอนโรงพยาบาล (ClaimAuth)
     findings.extend(_auth_findings(raw))
@@ -401,6 +419,26 @@ def validate(raw: bytes) -> dict:
                     f"แต่อยู่หมวด {billgrcs} — นอก DRG ได้เฉพาะหมวด 01 ห้อง/อาหาร และ 02 อวัยวะเทียม/อุปกรณ์"
                     + (" · ชื่อรายการระบุว่าเบิกไม่ได้/ไม่ตรงข้อบ่งชี้" if suggest == "X" else ""),
                     where=where, suggest=f"ควรเป็น {suggest}"))
+
+            # อุปกรณ์เบิกได้เฉพาะข้อบ่งชี้ (เช่น Harmonic เฉพาะผ่าตัดส่องกล้องบริเวณคอ) — นอกข้อบ่งชี้ คง T ขอเบิก 0
+            limited = LIMITED_USE_RE.search(f[F_DESC])
+            item = indication_item(f[F_DESC])
+            if billgrcs in BILLGRCS_T and (claim_up or Decimal(0)) != 0 and (item or limited):
+                ops = ", ".join(op_codes) or "ไม่มี"
+                if item:
+                    if not any(c.startswith(item["icd9_prefixes"]) for c in op_codes):
+                        suggest, suggest_up = "T", _fmt(Decimal(0))
+                        findings.append(_finding(
+                            "เฉพาะข้อบ่งชี้", "WARNING",
+                            f"{f[F_DESC].strip()[:50]} เบิกได้เฉพาะ{item['label']} แต่หัตถการในไฟล์ (IPOp: {ops}) "
+                            f"ไม่ตรงข้อบ่งชี้ — ขอเบิกอยู่ {f[F_CLAIMAMT].strip()}",
+                            where=where, suggest="คง T ราคาเบิก 0 (ตรวจกับแพทย์/ศูนย์สิทธิ์ เป็นกรณีไป)"))
+                else:
+                    findings.append(_finding(
+                        "เฉพาะข้อบ่งชี้", "WARNING",
+                        f"{f[F_DESC].strip()[:50]} ระบุ '{limited.group(1)}' — ตรวจว่าหัตถการ (IPOp: {ops}) "
+                        "ตรงข้อบ่งชี้ ถ้าไม่ตรงให้คง T ราคาเบิก 0",
+                        where=where, suggest="ตรวจข้อบ่งชี้"))
 
         # รายการที่ชื่อระบุว่าเบิกไม่ได้ / ไม่ตรงข้อบ่งชี้ แต่ยังนับเข้ายอด (D) — ควรเป็น X (ไม่ขอเบิก)
         if cat == "D" and NOT_CLAIMABLE_RE.search(f[F_DESC]) and not is_excess_row(f):

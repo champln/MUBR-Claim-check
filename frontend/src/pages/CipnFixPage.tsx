@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   FileCheck2, Upload, FileText, X, Search, Download, AlertTriangle, AlertCircle,
-  CheckCircle2, Calculator, Info, Trash2, KeyRound, ArrowLeftRight,
+  CheckCircle2, Calculator, Info, Trash2, KeyRound, ArrowLeftRight, Check, Undo2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -127,7 +127,7 @@ export default function CipnFixPage() {
     result.totals.xdrg_claim_file !== result.totals.xdrg_claim_calc)
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 w-full">
       <div>
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
           <FileCheck2 className="w-5 h-5 text-violet-600" /> ตรวจ/แก้ไฟล์ผู้ป่วยใน (ClaimCat &amp; ยอดรวม)
@@ -305,7 +305,7 @@ export default function CipnFixPage() {
                           <td className="pr-3 py-1 font-sans whitespace-nowrap">
                             {e.kind === 'remove'
                               ? <span className="text-rose-600">ลบแถว ({e.from})</span>
-                              : <>{e.from} → <b>{e.to}</b></>}
+                              : <>{e.from} → <b>{e.to}</b>{e.zero && <span className="text-blue-700"> ขอเบิก 0</span>}</>}
                             {e.needUp && <span className="ml-1.5 text-amber-600 text-xs">กรอกราคาเบิก/หน่วยก่อน</span>}
                           </td>
                           <td className="pr-3 py-1 text-right"><Delta v={e.dDrg} /></td>
@@ -458,6 +458,9 @@ export default function CipnFixPage() {
                 <tbody className="divide-y divide-gray-100">
                   {rows.map(r => {
                     const pick = picked[r.seq]
+                    const after = pickedAfter(r, pick)
+                    const zero = pick?.cat === 'T' && pick.up.trim() !== '' && num(pick.up) === 0
+                    const eff = effectByseq[r.seq]
                     return (
                       <tr key={r.seq} className={clsx(r.suggest_cat && 'bg-amber-50/40', pick?.cat && 'bg-violet-50/50')}>
                         <td className="px-3 py-2 font-mono text-gray-500">{r.seq}</td>
@@ -465,8 +468,9 @@ export default function CipnFixPage() {
                         <td className="px-3 py-2 font-mono text-gray-600">{r.lccode}</td>
                         <td className="px-3 py-2 truncate max-w-xs" title={r.desc}>{r.desc}</td>
                         <td className="px-3 py-2 text-right font-mono">{r.charge_amt}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">{r.claim_up}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-500">{r.claim_amt}</td>
+                        {/* ราคาเบิก / ยอดขอเบิก: ถ้าเลือกเปลี่ยน แสดงค่าเดิม (ขีดฆ่า) และค่าหลังแก้ */}
+                        <BeforeAfter before={r.claim_up} after={after?.up} />
+                        <BeforeAfter before={r.claim_amt} after={after?.amt} />
                         <td className="px-3 py-2">
                           <span className={clsx('font-mono text-xs font-bold rounded px-1.5 py-0.5',
                             r.claim_cat === 'T' ? 'bg-blue-100 text-blue-700'
@@ -474,9 +478,10 @@ export default function CipnFixPage() {
                             {r.claim_cat}
                           </span>
                           {r.suggest_cat && (
-                            <span className="text-[13px] text-amber-700 ml-1.5">
-                              ควรเป็น {r.suggest_cat}
-                              {r.suggest_up ? ` @${Number(r.suggest_up).toLocaleString()}` : r.suggest_cat === 'D' && r.claim_cat === 'D' ? ' (ราคาเบิก 0)' : ''}
+                            <span className="block mt-1 text-[12px] text-amber-700 whitespace-nowrap">
+                              แนะนำ: {r.suggest_cat}
+                              {r.suggest_up ? (Number(r.suggest_up) === 0 ? ' ขอเบิก 0' : ` @${Number(r.suggest_up).toLocaleString()}`)
+                                : r.suggest_cat === 'D' && r.claim_cat === 'D' ? ' ราคาเบิก 0' : ''}
                             </span>
                           )}
                           {r.room_kind && (
@@ -485,31 +490,57 @@ export default function CipnFixPage() {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
-                            <select value={pick?.cat || ''}
-                              onChange={e => setPicked(p => ({ ...p, [r.seq]: {
-                                cat: e.target.value,
-                                up: p[r.seq]?.up || (e.target.value === 'T' && r.suggest_up ? String(Number(r.suggest_up)) : ''),
-                              } }))}
-                              className="border border-gray-300 rounded px-2 py-1 text-sm bg-white">
-                              <option value="">— ไม่เปลี่ยน —</option>
-                              {Object.entries(CAT_LABEL).map(([k, label]) => (
-                                <option key={k} value={k}>{label}</option>
-                              ))}
-                            </select>
-                            {pick?.cat === 'T' && (
-                              <input value={pick.up} onChange={e => setPicked(p => ({ ...p, [r.seq]: { cat: 'T', up: e.target.value } }))}
-                                placeholder="ราคาเบิก/หน่วย"
-                                className="border border-violet-300 rounded px-2 py-1 text-sm font-mono w-32 focus:ring-1 focus:ring-violet-400 outline-none" />
+                            {zero ? (
+                              // โหมด "ขอเบิก 0": คง T ไว้ ยอดขอเบิก 0.0000 — กดอีกครั้งเพื่อยกเลิก
+                              <>
+                                <span className="text-xs text-blue-700 whitespace-nowrap flex items-center gap-1">
+                                  <Check className="w-3.5 h-3.5" /> คง T · ขอเบิก 0.0000
+                                </span>
+                                <button type="button" onClick={() => setPicked(p => { const n = { ...p }; delete n[r.seq]; return n })}
+                                  title={`กลับเป็นค่าเดิม (${r.claim_cat} ราคาเบิก ${r.claim_up})`}
+                                  className="text-xs px-2.5 py-1.5 rounded border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 whitespace-nowrap flex items-center gap-1.5">
+                                  <Undo2 className="w-3.5 h-3.5" /> เปลี่ยนกลับ
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <select value={pick?.cat || ''}
+                                  onChange={e => setPicked(p => ({ ...p, [r.seq]: {
+                                    cat: e.target.value,
+                                    up: p[r.seq]?.up || (e.target.value === 'T' && r.suggest_up ? String(Number(r.suggest_up)) : ''),
+                                  } }))}
+                                  className="border border-gray-300 rounded px-2 py-1 text-sm bg-white">
+                                  <option value="">— ไม่เปลี่ยน —</option>
+                                  {Object.entries(CAT_LABEL).map(([k, label]) => (
+                                    <option key={k} value={k}>{label}</option>
+                                  ))}
+                                </select>
+                                {pick?.cat === 'T' && (
+                                  <input value={pick.up} onChange={e => setPicked(p => ({ ...p, [r.seq]: { cat: 'T', up: e.target.value } }))}
+                                    placeholder="ราคาเบิก/หน่วย"
+                                    className="border border-violet-300 rounded px-2 py-1 text-sm font-mono w-28 focus:ring-1 focus:ring-violet-400 outline-none" />
+                                )}
+                                {/* คง T แต่ขอเบิก 0 — เช่น อุปกรณ์ที่ใช้นอกข้อบ่งชี้ (Harmonic ที่ไม่ใช่ผ่าตัดส่องกล้องบริเวณคอ) */}
+                                {(r.claim_cat === 'T' || pick?.cat === 'T') && (
+                                  <button type="button" onClick={() => setPicked(p => ({ ...p, [r.seq]: { cat: 'T', up: '0' } }))}
+                                    title="คง ClaimCat T แต่ตั้งราคาเบิก/ยอดขอเบิกเป็น 0.0000"
+                                    className="text-xs px-2 py-1 rounded border bg-white text-blue-700 border-blue-300 hover:bg-blue-50 whitespace-nowrap">
+                                    ขอเบิก 0
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap">
-                          {effectByseq[r.seq] ? (
+                          {eff ? (
                             <>
-                              <div>DRG <Delta v={effectByseq[r.seq].dDrg} /></div>
-                              <div>XDRG <Delta v={effectByseq[r.seq].dXdrg} /></div>
-                              {effectByseq[r.seq].outside > 0.005 && (
-                                <div className="text-gray-400" title="เกินเพดานราคาเบิก ไม่เข้ายอดใด">เกินเพดาน {money(effectByseq[r.seq].outside)}</div>
+                              <div>DRG <Delta v={eff.dDrg} /></div>
+                              <div>XDRG <Delta v={eff.dXdrg} /></div>
+                              {eff.outside > 0.005 && (
+                                zero
+                                  ? <div className="text-gray-500" title="คง T แต่ไม่ขอเบิก — ไม่เข้ายอดใด">ไม่ขอเบิก {money(eff.outside)}</div>
+                                  : <div className="text-gray-400" title="เกินเพดานราคาเบิก ไม่เข้ายอดใด">เกินเพดาน {money(eff.outside)}</div>
                               )}
                             </>
                           ) : <span className="text-gray-300">—</span>}
@@ -528,7 +559,8 @@ export default function CipnFixPage() {
             <div className="px-4 py-2 border-t text-[13px] text-gray-500 flex items-start gap-1.5">
               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               เปลี่ยนเป็น T ต้องกรอกราคาเบิกต่อหน่วยตามบัญชีอัตราของกรมบัญชีกลาง — ระบบจะไม่คิดราคาให้เองจากยอดที่เรียกเก็บ
-              เพราะจะกลายเป็นการเบิกเงินที่โรงพยาบาลไม่มีสิทธิ์
+              เพราะจะกลายเป็นการเบิกเงินที่โรงพยาบาลไม่มีสิทธิ์ · ปุ่ม “ขอเบิก 0” คง T ไว้แต่ตั้งราคาเบิกและยอดขอเบิกเป็น 0.0000 (เช่น ใช้นอกข้อบ่งชี้)
+              — ค่าหลังแก้แสดงในคอลัมน์ราคาเบิก/ยอดขอเบิก (ค่าเดิมขีดฆ่า)
             </div>
           </div>
         </>
@@ -561,6 +593,7 @@ type RowEffect = {
   from: string; to: string
   dDrg: number; dXdrg: number; outside: number
   needUp?: boolean
+  zero?: boolean   // คง T แต่ขอเบิก 0
 }
 
 function rowEffect(r: CipnValidateResult['rows'][number], to: string, up: string): RowEffect {
@@ -573,7 +606,28 @@ function rowEffect(r: CipnValidateResult['rows'][number], to: string, up: string
     seq: r.seq, desc: r.desc, kind: 'change', from: r.claim_cat, to,
     dDrg: r4(after.drg - before.drg), dXdrg: r4(after.xdrg - before.xdrg),
     outside: r4(to === 'T' && !needUp ? after.outside : 0), needUp,
+    zero: to === 'T' && !needUp && num(up) === 0,
   }
+}
+
+// ราคาเบิก/หน่วย และยอดขอเบิกหลังแก้ ตามที่เลือก (สูตรเดียวกับ backend set_claim_cat) — ไม่ได้เลือก = undefined
+function pickedAfter(r: CipnValidateResult['rows'][number], pick?: { cat: string; up: string }) {
+  if (!pick?.cat) return undefined
+  if (pick.cat !== 'T') return { up: '0.00', amt: '0.0000' }
+  if (pick.up.trim() === '' || Number.isNaN(num(pick.up))) return { up: '?', amt: '?' }
+  const up = num(pick.up)
+  return { up: up.toFixed(4), amt: (up * num(r.qty)).toFixed(4) }
+}
+
+function BeforeAfter({ before, after }: { before: string; after?: string }) {
+  if (after === undefined || after === before)
+    return <td className="px-3 py-2 text-right font-mono text-gray-500">{before}</td>
+  return (
+    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+      <div className="text-gray-400 line-through text-xs">{before}</div>
+      <div className={clsx('font-semibold', after === '?' ? 'text-amber-600' : 'text-violet-700')}>{after}</div>
+    </td>
+  )
 }
 
 function removeEffect(r: CipnValidateResult['rows'][number]): RowEffect {
